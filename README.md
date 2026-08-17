@@ -124,6 +124,12 @@ Lo storico conversazione inviato a Hermes viene sempre caricato dal database, ma
 
 > La route di streaming ha `maxDuration = 60` secondi. Su Vercel Hobby il limite è 60s; su Pro puoi alzarlo se le risposte di Hermes richiedono più tempo.
 
+## Risoluzione problemi
+
+- **`/api/health`** verifica i tre collegamenti (Turso, PostgreSQL, Hermes) e riporta il primo errore utile: aprilo sul dominio del sito.
+- Se la **registrazione** risponde 500, il messaggio nel form indica la causa più probabile: variabile d'ambiente mancante, token Turso errato, o tabella `users` assente (in quel caso esegui `npm run db:push:turso` con le variabili di produzione).
+- I dettagli completi sono nei **log delle funzioni** su Vercel (Deployments → Logs).
+
 ## Struttura
 
 ```
@@ -138,6 +144,7 @@ src/
       register/          creazione account (Turso)
       chats/             elenco + creazione chat (PostgreSQL)
       chat/[chatId]/     streaming della risposta + eliminazione chat (PostgreSQL)
+      health/            diagnostica dei collegamenti (Turso, PostgreSQL, Hermes)
   components/
     auth-form.tsx        form unico login/registrazione
     chats-toolbar.tsx    nuova chat + esci
