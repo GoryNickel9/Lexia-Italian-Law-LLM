@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport } from "ai";
@@ -34,7 +33,6 @@ export function Chat({
   const router = useRouter();
   const bottomRef = useRef<HTMLDivElement>(null);
   const [input, setInput] = useState("");
-  const [deleting, setDeleting] = useState(false);
   const autoSentRef = useRef(false);
 
   const { messages, sendMessage, status, error, stop } = useChat({
@@ -70,17 +68,6 @@ export function Chat({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  async function handleDelete() {
-    setDeleting(true);
-    try {
-      await fetch(`/api/chat/${chatId}`, { method: "DELETE" });
-      router.push("/chats");
-      router.refresh();
-    } finally {
-      setDeleting(false);
-    }
-  }
-
   async function handleSend() {
     const text = input.trim();
     if (!text || busy || creditsExhausted) return;
@@ -97,24 +84,8 @@ export function Chat({
 
   return (
     <main className="mx-auto flex w-full max-w-3xl flex-1 flex-col px-4">
-      <header className="flex items-center justify-between gap-3 border-b border-line py-3">
-        <h1 className="min-w-0 truncate text-sm font-medium">{chatTitle}</h1>
-        <div className="flex shrink-0 items-center gap-2">
-          <Link
-            href="/chats"
-            className="rounded-lg border border-line px-3 py-1.5 text-sm text-foreground/80 transition-colors hover:bg-foreground/5"
-          >
-            Nuova chat
-          </Link>
-          <button
-            type="button"
-            onClick={handleDelete}
-            disabled={deleting}
-            className="rounded-lg border border-line px-3 py-1.5 text-sm text-foreground/80 transition-colors hover:border-red-400 hover:bg-red-500/10 hover:text-red-600 disabled:opacity-60 dark:hover:text-red-400"
-          >
-            {deleting ? "Eliminazione…" : "Elimina"}
-          </button>
-        </div>
+      <header className="border-b border-line py-3">
+        <h1 className="truncate text-sm font-medium">{chatTitle}</h1>
       </header>
 
       <div className="flex-1 overflow-y-auto py-6">
