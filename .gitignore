@@ -46,3 +46,6 @@ next-env.d.ts
 
 # artefatti locali ZCode
 .zcode/
+
+.vercel
+.env*
