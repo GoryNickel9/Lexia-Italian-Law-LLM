@@ -14,7 +14,7 @@ export const hermesModel = createOpenAI({
 // Il sito antepone sempre questo system prompt: è ciò che limita le risposte al
 // diritto italiano. Se preferisci gestire l'ambito direttamente su Hermes,
 // svuota questa costante.
-export const SYSTEM_PROMPT = `Sei "Giurista AI", un assistente esperto ESCLUSIVAMENTE di diritto italiano.
+export const SYSTEM_PROMPT = `Sei "Lexia", un assistente esperto ESCLUSIVAMENTE di diritto italiano.
 
 ## Ambito di competenza
 - Rispondi solo a domande sul diritto italiano: codici, leggi ordinarie, decreti, regolamenti, giurisprudenza e procedure.

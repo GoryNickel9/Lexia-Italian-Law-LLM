@@ -5,6 +5,12 @@ import { eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { users } from "@/lib/schema";
 
+// Email (separate da virgole) che al login diventano automaticamente admin.
+export const adminEmails = (process.env.ADMIN_EMAILS ?? "")
+  .split(",")
+  .map((e) => e.trim().toLowerCase())
+  .filter(Boolean);
+
 export const { handlers, auth, signIn, signOut } = NextAuth({
   session: { strategy: "jwt" },
   pages: { signIn: "/login" },
@@ -26,17 +32,37 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         const valid = await bcrypt.compare(password, user.passwordHash);
         if (!valid) return null;
 
-        return { id: user.id, email: user.email, name: user.name };
+        // Promuove admin le email elencate in ADMIN_EMAILS
+        if (adminEmails.includes(user.email) && user.role !== "admin") {
+          await db.update(users).set({ role: "admin" }).where(eq(users.id, user.id));
+          return { id: user.id, email: user.email, name: user.name, role: "admin" };
+        }
+
+        return { id: user.id, email: user.email, name: user.name, role: user.role };
       },
     }),
   ],
   callbacks: {
-    jwt({ token, user }) {
-      if (user?.id) token.id = user.id;
+    async jwt({ token, user, trigger }) {
+      if (user?.id) {
+        token.id = user.id;
+        const role = (user as { role?: "user" | "admin" }).role;
+        token.role = role === "admin" ? "admin" : "user";
+      }
+      // Dopo un cambio email (o un update() dal client) risincronizza il token col database
+      if (trigger === "update" && token.id) {
+        const fresh = await db.query.users.findFirst({ where: eq(users.id, token.id as string) });
+        if (fresh) {
+          token.email = fresh.email;
+          token.name = fresh.name;
+          token.role = fresh.role;
+        }
+      }
       return token;
     },
     session({ session, token }) {
       if (token.id) session.user.id = token.id as string;
+      session.user.role = token.role === "admin" ? "admin" : "user";
       return session;
     },
   },

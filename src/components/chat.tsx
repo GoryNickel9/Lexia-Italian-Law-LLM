@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport } from "ai";
 import ReactMarkdown from "react-markdown";
+import { formatEuro } from "@/lib/format";
 
 type InitialMessage = {
   id: string;
@@ -13,24 +14,37 @@ type InitialMessage = {
   parts: { type: "text"; text: string }[];
 };
 
+// Messaggio scritto nella schermata "nuova chat": viene inviato
+// automaticamente appena questa pagina viene aperta.
+const PENDING_MESSAGE_KEY = "lexia:pending-message";
+
 export function Chat({
   chatId,
   chatTitle,
   initialMessages,
+  creditsExhausted,
+  costCents,
 }: {
   chatId: string;
   chatTitle: string;
   initialMessages: InitialMessage[];
+  creditsExhausted: boolean;
+  costCents: number;
 }) {
   const router = useRouter();
   const bottomRef = useRef<HTMLDivElement>(null);
   const [input, setInput] = useState("");
   const [deleting, setDeleting] = useState(false);
+  const autoSentRef = useRef(false);
 
   const { messages, sendMessage, status, error, stop } = useChat({
     id: chatId,
     messages: initialMessages,
     transport: new DefaultChatTransport({ api: `/api/chat/${chatId}` }),
+    onFinish: () => {
+      // Aggiorna sidebar: titolo della chat e credito residuo
+      router.refresh();
+    },
   });
 
   const busy = status === "submitted" || status === "streaming";
@@ -38,6 +52,23 @@ export function Chat({
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [messages]);
+
+  // Invio automatico del messaggio scritto nella schermata "nuova chat"
+  useEffect(() => {
+    if (autoSentRef.current || messages.length > 0 || busy || creditsExhausted) return;
+    autoSentRef.current = true;
+    let text: string | null = null;
+    try {
+      text = sessionStorage.getItem(PENDING_MESSAGE_KEY);
+      if (text) sessionStorage.removeItem(PENDING_MESSAGE_KEY);
+    } catch {
+      return;
+    }
+    if (text?.trim()) {
+      void sendMessage({ text: text.trim() });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   async function handleDelete() {
     setDeleting(true);
@@ -52,7 +83,7 @@ export function Chat({
 
   async function handleSend() {
     const text = input.trim();
-    if (!text || busy) return;
+    if (!text || busy || creditsExhausted) return;
     setInput("");
     await sendMessage({ text });
   }
@@ -66,48 +97,35 @@ export function Chat({
 
   return (
     <main className="mx-auto flex w-full max-w-3xl flex-1 flex-col px-4">
-      <header className="flex items-center justify-between gap-3 border-b border-zinc-200 py-3">
-        <div className="flex min-w-0 items-center gap-2">
+      <header className="flex items-center justify-between gap-3 border-b border-line py-3">
+        <h1 className="min-w-0 truncate text-sm font-medium">{chatTitle}</h1>
+        <div className="flex shrink-0 items-center gap-2">
           <Link
             href="/chats"
-            className="shrink-0 rounded-lg p-1.5 text-zinc-500 transition-colors hover:bg-zinc-100 hover:text-zinc-900"
-            title="Torna alle chat"
+            className="rounded-lg border border-line px-3 py-1.5 text-sm text-foreground/80 transition-colors hover:bg-foreground/5"
           >
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              viewBox="0 0 20 20"
-              fill="currentColor"
-              className="h-5 w-5"
-              aria-hidden="true"
-            >
-              <path
-                fillRule="evenodd"
-                d="M17 10a.75.75 0 0 1-.75.75H5.612l4.158 3.96a.75.75 0 1 1-1.04 1.08l-5.5-5.25a.75.75 0 0 1 0-1.08l5.5-5.25a.75.75 0 1 1 1.04 1.08L5.612 9.25H16.25A.75.75 0 0 1 17 10Z"
-                clipRule="evenodd"
-              />
-            </svg>
+            Nuova chat
           </Link>
-          <h1 className="truncate text-sm font-medium text-zinc-900">{chatTitle}</h1>
+          <button
+            type="button"
+            onClick={handleDelete}
+            disabled={deleting}
+            className="rounded-lg border border-line px-3 py-1.5 text-sm text-foreground/80 transition-colors hover:border-red-400 hover:bg-red-500/10 hover:text-red-600 disabled:opacity-60 dark:hover:text-red-400"
+          >
+            {deleting ? "Eliminazione…" : "Elimina"}
+          </button>
         </div>
-        <button
-          type="button"
-          onClick={handleDelete}
-          disabled={deleting}
-          className="shrink-0 rounded-lg border border-zinc-300 px-3 py-1.5 text-sm text-zinc-700 transition-colors hover:border-red-300 hover:bg-red-50 hover:text-red-700 disabled:opacity-60"
-        >
-          {deleting ? "Eliminazione…" : "Elimina"}
-        </button>
       </header>
 
       <div className="flex-1 overflow-y-auto py-6">
         {messages.length === 0 ? (
-          <div className="flex h-full flex-col items-center justify-center rounded-2xl border border-dashed border-zinc-300 bg-zinc-50 p-10 text-center">
-            <h2 className="text-lg font-semibold text-zinc-900">Giurista AI</h2>
-            <p className="mt-2 max-w-md text-sm text-zinc-600">
+          <div className="flex h-full flex-col items-center justify-center rounded-2xl border border-dashed border-line p-10 text-center">
+            <h2 className="text-lg font-semibold">Lexia</h2>
+            <p className="mt-2 max-w-md text-sm text-muted">
               Chiedimi qualcosa sul diritto italiano: leggi, codici, giurisprudenza,
               procedure. Rispondo solo a domande in questo ambito.
             </p>
-            <p className="mt-3 text-xs text-zinc-500">
+            <p className="mt-3 text-xs text-muted">
               Non sostituisco la consulenza di un avvocato.
             </p>
           </div>
@@ -122,7 +140,7 @@ export function Chat({
               if (message.role === "user") {
                 return (
                   <div key={message.id} className="flex justify-end">
-                    <div className="max-w-[85%] whitespace-pre-wrap rounded-2xl rounded-br-sm bg-zinc-900 px-4 py-2.5 text-sm text-white">
+                    <div className="max-w-[85%] whitespace-pre-wrap rounded-2xl rounded-br-sm bg-accent px-4 py-2.5 text-sm text-accent-foreground">
                       {textParts.map((part) => part.text).join("")}
                     </div>
                   </div>
@@ -131,7 +149,7 @@ export function Chat({
 
               return (
                 <div key={message.id} className="flex justify-start">
-                  <div className="max-w-[90%] rounded-2xl rounded-bl-sm border border-zinc-200 bg-white px-4 py-2.5 text-sm leading-relaxed text-zinc-800">
+                  <div className="max-w-[90%] rounded-2xl rounded-bl-sm border border-line bg-card px-4 py-2.5 text-sm leading-relaxed">
                     {textParts.map((part, i) => (
                       <div key={i} className="markdown">
                         <ReactMarkdown>{part.text}</ReactMarkdown>
@@ -146,40 +164,48 @@ export function Chat({
         )}
       </div>
 
-      {error && (
-        <p className="mb-2 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
+      {creditsExhausted ? (
+        <p className="mb-2 rounded-lg bg-amber-500/10 px-3 py-2 text-sm text-amber-700 dark:text-amber-400">
+          Crediti esauriti: ogni messaggio costa {formatEuro(costCents)}. Contatta
+          l&apos;amministratore per ricaricare il tuo credito.
+        </p>
+      ) : error ? (
+        <p className="mb-2 rounded-lg bg-red-500/10 px-3 py-2 text-sm text-red-600 dark:text-red-400">
           Errore durante la generazione della risposta. Riprova.
         </p>
-      )}
+      ) : null}
 
       <form
         onSubmit={(e) => {
           e.preventDefault();
           handleSend();
         }}
-        className="sticky bottom-0 flex items-end gap-2 border-t border-zinc-200 bg-white py-3"
+        className="sticky bottom-0 flex items-end gap-2 border-t border-line bg-background py-3"
       >
         <textarea
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder="Scrivi una domanda sul diritto italiano…"
+          placeholder={
+            creditsExhausted ? "Crediti esauriti" : "Scrivi una domanda sul diritto italiano…"
+          }
           rows={1}
-          className="max-h-40 min-h-11 flex-1 resize-y rounded-xl border border-zinc-300 px-3 py-2.5 text-sm outline-none focus:border-zinc-900 focus:ring-2 focus:ring-zinc-900/10"
+          disabled={creditsExhausted}
+          className="max-h-40 min-h-11 flex-1 resize-y rounded-xl border border-line bg-input px-3 py-2.5 text-sm text-foreground outline-none focus:border-accent focus:ring-2 focus:ring-accent/10 disabled:opacity-60"
         />
         {busy ? (
           <button
             type="button"
             onClick={stop}
-            className="h-11 shrink-0 rounded-xl border border-zinc-300 px-4 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-100"
+            className="h-11 shrink-0 rounded-xl border border-line px-4 text-sm font-medium text-foreground/80 transition-colors hover:bg-foreground/5"
           >
             Stop
           </button>
         ) : (
           <button
             type="submit"
-            disabled={!input.trim()}
-            className="h-11 shrink-0 rounded-xl bg-zinc-900 px-4 text-sm font-medium text-white transition-colors hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-50"
+            disabled={!input.trim() || creditsExhausted}
+            className="h-11 shrink-0 rounded-xl bg-accent px-4 text-sm font-medium text-accent-foreground transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
           >
             Invia
           </button>

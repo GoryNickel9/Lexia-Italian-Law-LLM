@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server";
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, gte, sql } from "drizzle-orm";
 import { createUIMessageStreamResponse, streamText, toUIMessageStream } from "ai";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { chats, messages } from "@/lib/schema";
+import { chats, messages, users } from "@/lib/schema";
+import { getCostPerMessageCents } from "@/lib/settings";
 import { hermesModel, SYSTEM_PROMPT } from "@/lib/hermes";
 import { formatLegalContext, legalUnavailableResponse, searchLocalCorpus } from "@/lib/legal";
 
@@ -48,6 +49,23 @@ export async function POST(request: Request, { params }: { params: Promise<{ cha
     return NextResponse.json({ error: "Chat non trovata" }, { status: 404 });
   }
 
+  // Crediti: ogni messaggio ha un costo (in centesimi) impostato dall'admin.
+  // Gli admin non pagano. Qui si verifica solo che il credito sia sufficiente:
+  // l'addebito effettivo avviene dopo il recupero del contesto legale, così un
+  // errore a monte (503) non lascia l'utente addebitato senza risposta.
+  const costCents = await getCostPerMessageCents();
+  const user = await db.query.users.findFirst({
+    where: eq(users.id, session.user.id),
+    columns: { role: true, balanceCents: true },
+  });
+  const chargeable = user?.role !== "admin" && costCents > 0;
+  if (chargeable && (user?.balanceCents ?? 0) < costCents) {
+    return NextResponse.json(
+      { error: "Crediti insufficienti: contatta l'amministratore per ricaricare il tuo credito" },
+      { status: 402 },
+    );
+  }
+
   // Salva il messaggio dell'utente e, se è il primo, ricava il titolo della chat
   await db.insert(messages).values({ chatId, role: "user", content: userText });
   const updates: Partial<typeof chats.$inferInsert> = { updatedAt: new Date() };
@@ -71,6 +89,21 @@ export async function POST(request: Request, { params }: { params: Promise<{ cha
     legalContext = formatLegalContext(retrieved);
   } catch (error) {
     return legalUnavailableResponse(error);
+  }
+
+  // Addebito atomico del costo del messaggio (ribadito qui contro corse concorrenti)
+  if (chargeable) {
+    const charged = await db
+      .update(users)
+      .set({ balanceCents: sql`${users.balanceCents} - ${costCents}` })
+      .where(and(eq(users.id, session.user.id), gte(users.balanceCents, costCents)))
+      .returning({ id: users.id });
+    if (charged.length === 0) {
+      return NextResponse.json(
+        { error: "Crediti insufficienti: contatta l'amministratore per ricaricare il tuo credito" },
+        { status: 402 },
+      );
+    }
   }
 
   const result = streamText({

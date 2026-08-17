@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { signIn } from "next-auth/react";
 
 const inputClass =
-  "rounded-lg border border-zinc-300 px-3 py-2 text-sm outline-none focus:border-zinc-900 focus:ring-2 focus:ring-zinc-900/10";
+  "rounded-lg border border-line bg-input px-3 py-2 text-sm text-foreground outline-none focus:border-accent focus:ring-2 focus:ring-accent/10";
 
 export function AuthForm({ mode }: { mode: "login" | "register" }) {
   const router = useRouter();
@@ -55,7 +55,7 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
     <form onSubmit={handleSubmit} className="flex flex-col gap-4">
       {isRegister && (
         <div className="flex flex-col gap-1.5">
-          <label htmlFor="name" className="text-sm font-medium text-zinc-700">
+          <label htmlFor="name" className="text-sm font-medium">
             Nome
           </label>
           <input id="name" name="name" type="text" required autoComplete="name" className={inputClass} />
@@ -63,7 +63,7 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
       )}
 
       <div className="flex flex-col gap-1.5">
-        <label htmlFor="email" className="text-sm font-medium text-zinc-700">
+        <label htmlFor="email" className="text-sm font-medium">
           Email
         </label>
         <input
@@ -77,7 +77,7 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
       </div>
 
       <div className="flex flex-col gap-1.5">
-        <label htmlFor="password" className="text-sm font-medium text-zinc-700">
+        <label htmlFor="password" className="text-sm font-medium">
           Password
         </label>
         <input
@@ -89,17 +89,17 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
           autoComplete={isRegister ? "new-password" : "current-password"}
           className={inputClass}
         />
-        {isRegister && <p className="text-xs text-zinc-500">Almeno 8 caratteri.</p>}
+        {isRegister && <p className="text-xs text-muted">Almeno 8 caratteri.</p>}
       </div>
 
       {error && (
-        <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>
+        <p className="rounded-lg bg-red-500/10 px-3 py-2 text-sm text-red-600 dark:text-red-400">{error}</p>
       )}
 
       <button
         type="submit"
         disabled={pending}
-        className="mt-1 rounded-lg bg-zinc-900 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-60"
+        className="mt-1 rounded-lg bg-accent px-4 py-2.5 text-sm font-medium text-accent-foreground transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
       >
         {pending
           ? isRegister

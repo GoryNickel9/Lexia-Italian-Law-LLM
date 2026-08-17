@@ -1,6 +1,6 @@
-# Giurista AI — la porta web per Hermes Agent
+# Lexia — la porta web per Hermes Agent
 
-Il sito è **solo una porta** per parlare con il tuo **Hermes Agent** (che vive sulla tua VPS): registrazione/login, chat private per utente con streaming, e nient'altro. L'hosting del sito è su **Vercel**.
+Il sito è **solo una porta** per parlare con il tuo **Hermes Agent** (che vive sulla tua VPS): registrazione/login, chat private per utente con streaming, crediti in euro e pannello di amministrazione. L'hosting del sito è su **Vercel**.
 
 - **Turso (SQLite)** — database del sito: utenti, chat e messaggi
 - **PostgreSQL sulla VPS** — corpus Hermes Legal; il sito non si collega direttamente al DB
@@ -39,13 +39,26 @@ Compila `.env.local`:
 | `HERMES_MODEL` | `hermes_legal_site` |
 | `LEGAL_SEARCH_URL` | URL HTTPS del retrieval API, es. `https://hermes.tuodominio.it/legal-api` |
 | `LEGAL_SEARCH_API_KEY` | Chiave del retrieval API read-only |
+| `ADMIN_EMAILS` | Email (separate da virgole) che al login diventano amministratori e accedono a `/admin` |
 
 Crea lo schema e avvia:
 
 ```bash
-npm run db:push   # su Turso: tabelle users, chats, messages
+npm run db:push   # su Turso: tabelle users, chats, messages, settings
 npm run dev
 ```
+
+## Funzionalità
+
+- **Tema chiaro/scuro** — toggle nella sidebar (e nelle pagine di login), preferenza salvata nel browser
+- **Layout a due colonne** — chat a sinistra, conversazione al centro: dalla schermata iniziale si può scrivere subito, la chat viene creata al primo invio
+- **Impostazioni** — cambio email e cambio password (con verifica della password attuale)
+- **Crediti in €** — ogni utente ha un credito (benvenuto: 5,00 €); ogni messaggio inviato scala il costo configurato; il credito residuo è visibile nella sidebar
+- **Pannello admin** (`/admin`, solo admin) — elenco degli utenti registrati, eliminazione account, aggiunta/impostazione del credito, modifica del costo per messaggio, apertura/chiusura delle registrazioni
+
+### Amministratori
+
+Gli amministratori sono le email elencate in `ADMIN_EMAILS` (variabile d'ambiente, su Vercel e in `.env.local`): al primo login dopo la configurazione l'account viene promosso sul database. Gli admin non pagano i messaggi e vedono il pulsante **Admin** nella sidebar accanto a **Impostazioni**.
 
 ## Hermes Agent e profilo legale dietro HTTPS
 
@@ -135,7 +148,7 @@ Lo storico conversazione inviato a Hermes viene sempre caricato dal database, ma
    ```bash
    TURSO_DATABASE_URL=libsql://... TURSO_AUTH_TOKEN=eyJ... npm run db:push
    ```
-   (oppure incolla il SQL delle tre tabelle nella console web di Turso)
+   (oppure incolla il SQL delle quattro tabelle nella console web di Turso)
 
 > La route di streaming ha `maxDuration = 60` secondi. Su Vercel Hobby il limite è 60s; su Pro puoi alzarlo se le risposte di Hermes richiedono più tempo.
 
@@ -152,22 +165,33 @@ src/
   app/
     login/               pagina di accesso
     register/            pagina di registrazione
-    chats/               elenco delle chat dell'utente
+    chats/               layout con sidebar + schermata "nuova conversazione"
     chats/[id]/          pagina di una chat (streaming)
+    admin/               pannello di amministrazione (solo admin)
     api/
       auth/              endpoint Auth.js
-      register/          creazione account
+      register/          creazione account (rispetta registrazioni aperte/chiuse)
       chats/             elenco + creazione chat
-      chat/[chatId]/     streaming della risposta + eliminazione chat
+      chat/[chatId]/     streaming della risposta + eliminazione chat (addebito crediti)
+      user/email|password/  cambio email / cambio password
+      admin/users/       admin: elenco utenti, credito, eliminazione
+      admin/settings/    admin: costo per messaggio, registrazioni
       health/            diagnostica dei collegamenti (Turso, Hermes)
   components/
     auth-form.tsx        form unico login/registrazione
-    chats-toolbar.tsx    nuova chat + esci
+    sidebar.tsx          sidebar: lista chat, credito, impostazioni, admin, tema
     chat.tsx             interfaccia chat con streaming
+    new-chat-panel.tsx   pannello centrale per iniziare una conversazione
+    settings-modal.tsx   modale cambio email/password
+    admin-panel.tsx      pannello di amministrazione
+    theme-toggle.tsx     toggle tema chiaro/scuro
   lib/
-    auth.ts              config Auth.js v5
+    auth.ts              config Auth.js v5 (ruolo admin nel JWT)
+    admin.ts             verifica ruolo admin
     db.ts                client Turso (unico database del sito)
-    schema.ts            schema Turso: users, chats, messages
+    schema.ts            schema Turso: users, chats, messages, settings
+    settings.ts          impostazioni globali (registrazioni, costo per messaggio)
+    format.ts            formattazione importi in euro
     hermes.ts            collegamento a Hermes: provider + system prompt
   types/
     next-auth.d.ts       tipi di sessione

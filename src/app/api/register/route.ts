@@ -3,6 +3,7 @@ import bcrypt from "bcryptjs";
 import { eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { users } from "@/lib/schema";
+import { getRegistrationsOpen } from "@/lib/settings";
 
 export const runtime = "nodejs";
 
@@ -11,7 +12,7 @@ function describeError(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error);
   if (message.includes("non configurata")) return message;
   if (message.includes("no such table")) {
-    return "La tabella users non esiste su Turso: esegui `npm run db:push:turso` con le variabili di produzione";
+    return "La tabella users non esiste: esegui `npm run db:push` con le variabili di produzione";
   }
   if (/unauthorized|invalid api key|authentication|401/i.test(message)) {
     return "Autenticazione Turso fallita: controlla TURSO_AUTH_TOKEN su Vercel";
@@ -25,6 +26,15 @@ export async function POST(request: Request) {
     body = await request.json();
   } catch {
     return NextResponse.json({ error: "Richiesta non valida" }, { status: 400 });
+  }
+
+  // L'admin può chiudere le registrazioni dal pannello di amministrazione
+  const registrationsOpen = await getRegistrationsOpen().catch(() => true);
+  if (!registrationsOpen) {
+    return NextResponse.json(
+      { error: "Le registrazioni sono temporaneamente chiuse" },
+      { status: 403 },
+    );
   }
 
   const name = typeof body.name === "string" ? body.name.trim() : "";

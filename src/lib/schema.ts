@@ -11,9 +11,20 @@ export const users = sqliteTable("users", {
   email: text("email").notNull().unique(),
   name: text("name").notNull(),
   passwordHash: text("password_hash").notNull(),
+  // "user" | "admin": gli admin accedono al pannello di amministrazione
+  role: text("role", { enum: ["user", "admin"] }).notNull().default("user"),
+  // Credito dell'utente in centesimi di euro (500 = 5,00 €)
+  balanceCents: integer("balance_cents").notNull().default(sql`500`),
   createdAt: integer("created_at", { mode: "timestamp" })
     .notNull()
     .default(sql`(unixepoch())`),
+});
+
+// Impostazioni globali del sito (key/value): registrazioni aperte,
+// costo per messaggio, ecc. Vedi src/lib/settings.ts per le chiavi.
+export const settings = sqliteTable("settings", {
+  key: text("key").primaryKey(),
+  value: text("value").notNull(),
 });
 
 export const chats = sqliteTable(
@@ -70,3 +81,4 @@ export const messagesRelations = relations(messages, ({ one }) => ({
 export type User = typeof users.$inferSelect;
 export type Chat = typeof chats.$inferSelect;
 export type Message = typeof messages.$inferSelect;
+export type Setting = typeof settings.$inferSelect;
