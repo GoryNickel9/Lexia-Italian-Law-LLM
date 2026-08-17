@@ -24,7 +24,8 @@ async function checkTurso() {
 
 async function checkPostgres() {
   try {
-    await db.execute(sql`select 1`);
+    // verifica sia la connessione sia l'esistenza della tabella chats
+    await db.execute(sql`select count(*) from chats`);
     return { ok: true };
   } catch (error) {
     return { ok: false, errore: describe(error) };
