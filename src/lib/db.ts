@@ -1,28 +1,21 @@
-import { drizzle } from "drizzle-orm/node-postgres";
-import { Pool } from "pg";
+import { createClient } from "@libsql/client";
+import { drizzle } from "drizzle-orm/libsql";
 import * as schema from "@/lib/schema";
 
-// Chat e messaggi: PostgreSQL sulla VPS.
+// Unico database del sito: Turso (utenti, chat, messaggi).
 // Il client viene creato al primo uso, non all'import del modulo: il build di
 // Vercel importa le route anche senza variabili d'ambiente e non deve fallire.
 function createDb() {
-  const connectionString = process.env.DATABASE_URL;
-  if (!connectionString) {
+  const url = process.env.TURSO_DATABASE_URL;
+  if (!url) {
     throw new Error(
-      "DATABASE_URL non configurata: impostala in .env.local (sviluppo) o nelle variabili d'ambiente su Vercel",
+      "TURSO_DATABASE_URL non configurata: impostala in .env.local (sviluppo) o nelle variabili d'ambiente su Vercel",
     );
   }
 
-  return drizzle(
-    new Pool({
-      connectionString,
-      // DATABASE_SSL=true per collegarsi al PostgreSQL della VPS via internet
-      // (certificato self-signed: rejectUnauthorized false).
-      ssl: process.env.DATABASE_SSL === "true" ? { rejectUnauthorized: false } : undefined,
-      max: 5,
-    }),
-    { schema },
-  );
+  return drizzle(createClient({ url, authToken: process.env.TURSO_AUTH_TOKEN }), {
+    schema,
+  });
 }
 
 type Db = ReturnType<typeof createDb>;

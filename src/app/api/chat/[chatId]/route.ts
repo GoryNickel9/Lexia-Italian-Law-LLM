@@ -86,7 +86,8 @@ export async function DELETE(_request: Request, { params }: { params: Promise<{ 
   }
 
   const { chatId } = await params;
-  // i messaggi vengono eliminati a cascata dal vincolo FK
+  // eliminazione esplicita: non si affida al cascade di SQLite
+  await db.delete(messages).where(eq(messages.chatId, chatId));
   await db
     .delete(chats)
     .where(and(eq(chats.id, chatId), eq(chats.userId, session.user.id)));

@@ -1,31 +1,65 @@
-import { relations } from "drizzle-orm";
-import { pgEnum, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
+import { relations, sql } from "drizzle-orm";
+import { index, integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
 
-// Chat e messaggi — vivono sul PostgreSQL della VPS.
-// Gli utenti vivono su Turso: tra chats.userId e Turso non può esistere
-// un vincolo di chiave esterna (database diversi), quindi è solo una colonna.
+// Tutti i dati del sito vivono su Turso: utenti, chat e messaggi.
+// Il PostgreSQL sulla VPS è di Hermes Agent: il sito non lo tocca.
 
-export const messageRole = pgEnum("message_role", ["user", "assistant"]);
-
-export const chats = pgTable("chats", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  userId: uuid("user_id").notNull(),
-  title: text("title").notNull().default("Nuova chat"),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-});
-
-export const messages = pgTable("messages", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  chatId: uuid("chat_id")
+export const users = sqliteTable("users", {
+  id: text("id")
+    .primaryKey()
+    .$defaultFn(() => crypto.randomUUID()),
+  email: text("email").notNull().unique(),
+  name: text("name").notNull(),
+  passwordHash: text("password_hash").notNull(),
+  createdAt: integer("created_at", { mode: "timestamp" })
     .notNull()
-    .references(() => chats.id, { onDelete: "cascade" }),
-  role: messageRole("role").notNull(),
-  content: text("content").notNull(),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    .default(sql`(unixepoch())`),
 });
 
-export const chatsRelations = relations(chats, ({ many }) => ({
+export const chats = sqliteTable(
+  "chats",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    title: text("title").notNull().default("Nuova chat"),
+    createdAt: integer("created_at", { mode: "timestamp" })
+      .notNull()
+      .default(sql`(unixepoch())`),
+    updatedAt: integer("updated_at", { mode: "timestamp" })
+      .notNull()
+      .default(sql`(unixepoch())`),
+  },
+  (t) => [index("chats_user_id_idx").on(t.userId)],
+);
+
+export const messages = sqliteTable(
+  "messages",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    chatId: text("chat_id")
+      .notNull()
+      .references(() => chats.id, { onDelete: "cascade" }),
+    role: text("role", { enum: ["user", "assistant"] }).notNull(),
+    content: text("content").notNull(),
+    createdAt: integer("created_at", { mode: "timestamp" })
+      .notNull()
+      .default(sql`(unixepoch())`),
+  },
+  (t) => [index("messages_chat_id_idx").on(t.chatId)],
+);
+
+export const usersRelations = relations(users, ({ many }) => ({
+  chats: many(chats),
+}));
+
+export const chatsRelations = relations(chats, ({ one, many }) => ({
+  user: one(users, { fields: [chats.userId], references: [users.id] }),
   messages: many(messages),
 }));
 
@@ -33,5 +67,6 @@ export const messagesRelations = relations(messages, ({ one }) => ({
   chat: one(chats, { fields: [messages.chatId], references: [chats.id] }),
 }));
 
+export type User = typeof users.$inferSelect;
 export type Chat = typeof chats.$inferSelect;
 export type Message = typeof messages.$inferSelect;

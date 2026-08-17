@@ -1,9 +1,8 @@
 import { NextResponse } from "next/server";
 import { sql } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { usersDb } from "@/lib/users-db";
 
-// Diagnostica: verifica i tre collegamenti (Turso, PostgreSQL, Hermes).
+// Diagnostica: verifica i due collegamenti esterni del sito (Turso e Hermes).
 // Uso: apri /api/health sul dominio del sito.
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -14,18 +13,13 @@ function describe(error: unknown) {
 
 async function checkTurso() {
   try {
-    // conta le righe: verifica sia la connessione sia l'esistenza della tabella users
-    await usersDb.get(sql`select count(*) from users`);
-    return { ok: true };
-  } catch (error) {
-    return { ok: false, errore: describe(error) };
-  }
-}
-
-async function checkPostgres() {
-  try {
-    // verifica sia la connessione sia l'esistenza della tabella chats
-    await db.execute(sql`select count(*) from chats`);
+    // conta le righe delle tre tabelle: verifica connessione e schema completo
+    await db.get(
+      sql`select
+        (select count(*) from users) as users,
+        (select count(*) from chats) as chats,
+        (select count(*) from messages) as messages`,
+    );
     return { ok: true };
   } catch (error) {
     return { ok: false, errore: describe(error) };
@@ -51,11 +45,6 @@ async function checkHermes() {
 }
 
 export async function GET() {
-  const [turso, postgres, hermes] = await Promise.all([
-    checkTurso(),
-    checkPostgres(),
-    checkHermes(),
-  ]);
-
-  return NextResponse.json({ turso, postgres, hermes });
+  const [turso, hermes] = await Promise.all([checkTurso(), checkHermes()]);
+  return NextResponse.json({ turso, hermes });
 }

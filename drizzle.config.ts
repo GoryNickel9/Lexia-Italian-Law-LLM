@@ -1,10 +1,12 @@
 import { defineConfig } from "drizzle-kit";
 
+// Unico database del sito: Turso (utenti, chat, messaggi).
 export default defineConfig({
   schema: "./src/lib/schema.ts",
   out: "./drizzle",
-  dialect: "postgresql",
+  dialect: "turso",
   dbCredentials: {
-    url: process.env.DATABASE_URL ?? "postgres://postgres:postgres@localhost:5432/law_llm",
+    url: process.env.TURSO_DATABASE_URL ?? "file:./app.db",
+    authToken: process.env.TURSO_AUTH_TOKEN,
   },
 });

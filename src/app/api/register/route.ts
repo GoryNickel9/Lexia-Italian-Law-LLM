@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { eq } from "drizzle-orm";
-import { usersDb } from "@/lib/users-db";
-import { users } from "@/lib/users-schema";
+import { db } from "@/lib/db";
+import { users } from "@/lib/schema";
 
 export const runtime = "nodejs";
 
@@ -42,12 +42,12 @@ export async function POST(request: Request) {
   }
 
   try {
-    const existing = await usersDb.query.users.findFirst({ where: eq(users.email, email) });
+    const existing = await db.query.users.findFirst({ where: eq(users.email, email) });
     if (existing) {
       return NextResponse.json({ error: "Esiste già un account con questa email" }, { status: 409 });
     }
 
-    await usersDb.insert(users).values({
+    await db.insert(users).values({
       name,
       email,
       passwordHash: await bcrypt.hash(password, 12),
