@@ -46,25 +46,36 @@ npm run dev
 
 ## Hermes Agent dietro HTTPS
 
-1. Esponi il server API OpenAI-compatible:
+1. Abilita l'API Server nel file `~/.hermes/.env` sulla VPS:
    ```
-   hermes serve --host 0.0.0.0 --port 8000
+   API_SERVER_ENABLED=true
+   API_SERVER_KEY=<scegli-una-chiave-segreta>
    ```
-   (verifica i flag esatti nella documentazione di Hermes Agent)
+   (opzionali: `API_SERVER_PORT=8642`, `API_SERVER_HOST` — lascialo su 127.0.0.1)
 
-2. Reverse proxy HTTPS, es. con Caddy:
+2. Avvia il gateway (che contiene l'API Server, in ascolto su `http://127.0.0.1:8642`):
+   ```
+   hermes gateway
+   ```
+   Per l'esecuzione permanente usa un service systemd con `ExecStart=/percorso/hermes gateway`.
+
+3. Mettilo dietro un reverse proxy HTTPS, es. con Caddy:
    ```
    hermes.tuodominio.it {
-       reverse_proxy 127.0.0.1:8000
+       reverse_proxy 127.0.0.1:8642
    }
    ```
 
-3. Verifica dalla tua macchina che risponda come un endpoint OpenAI-compatible:
+4. Verifica dalla tua macchina che risponda come un endpoint OpenAI-compatible:
    ```bash
-   curl -X POST https://hermes.tuodominio.it/v1/chat/completions \
+   curl https://hermes.tuodominio.it/v1/chat/completions \
+     -H "Authorization: Bearer <chiave-segreta>" \
      -H "Content-Type: application/json" \
-     -d '{"model":"<modello>","messages":[{"role":"user","content":"Ciao"}]}'
+     -d '{"model":"hermes-agent","messages":[{"role":"user","content":"Ciao"}]}'
    ```
+   Nota: il nome del modello è il nome del profilo Hermes, `hermes-agent` per il profilo default.
+
+5. Sul sito imposta: `HERMES_BASE_URL=https://hermes.tuodominio.it/v1`, `HERMES_API_KEY=<chiave-segreta>`, `HERMES_MODEL=hermes-agent`.
 
 ## Ambito "solo diritto italiano"
 

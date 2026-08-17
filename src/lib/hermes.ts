@@ -3,13 +3,13 @@ import { createOpenAI } from "@ai-sdk/openai";
 // Tutto ciò che riguarda il collegamento a Hermes Agent (API OpenAI-compatible sulla VPS).
 
 // `.chat()` seleziona la Chat Completions API (/v1/chat/completions), che è quella
-// esposta da Hermes Agent. Il provider di default userebbe la Responses API
-// (/v1/responses), non supportata.
+// esposta dall'API Server di Hermes Agent. Il provider di default userebbe la
+// Responses API (/v1/responses), che Hermes supporta ma non è quella standard.
 export const hermesModel = createOpenAI({
   name: "hermes",
-  baseURL: process.env.HERMES_BASE_URL ?? "http://127.0.0.1:8000/v1",
+  baseURL: process.env.HERMES_BASE_URL ?? "http://127.0.0.1:8642/v1",
   apiKey: process.env.HERMES_API_KEY ?? "hermes",
-}).chat(process.env.HERMES_MODEL ?? "hermes");
+}).chat(process.env.HERMES_MODEL ?? "hermes-agent");
 
 // Il sito antepone sempre questo system prompt: è ciò che limita le risposte al
 // diritto italiano. Se preferisci gestire l'ambito direttamente su Hermes,
