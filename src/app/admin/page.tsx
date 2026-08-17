@@ -5,7 +5,7 @@ import { auth } from "@/lib/auth";
 import { isAdminUser } from "@/lib/admin";
 import { db } from "@/lib/db";
 import { users } from "@/lib/schema";
-import { SETTING_KEYS, getAllSettings } from "@/lib/settings";
+import { SETTING_KEYS, getAllSettings, getTokenPricing } from "@/lib/settings";
 import { AdminPanel } from "@/components/admin-panel";
 import { ThemeToggle } from "@/components/theme-toggle";
 
@@ -18,12 +18,13 @@ export default async function AdminPage() {
   if (!(await isAdminUser(session.user.id))) redirect("/chats");
 
   // Dati iniziali caricati server-side: il pannello li ricarica solo dopo le modifiche
-  const [userList, settings] = await Promise.all([
+  const [userList, settings, pricing] = await Promise.all([
     db.query.users.findMany({
       columns: { id: true, email: true, name: true, role: true, balanceCents: true, createdAt: true },
       orderBy: asc(users.createdAt),
     }),
     getAllSettings(),
+    getTokenPricing(),
   ]);
 
   return (
@@ -50,8 +51,8 @@ export default async function AdminPage() {
         initialUsers={userList.map((u) => ({ ...u, createdAt: u.createdAt.toISOString() }))}
         initialSettings={{
           registrationsOpen: settings[SETTING_KEYS.registrationsOpen] === "true",
-          costPerMessageCents:
-            Number.parseInt(settings[SETTING_KEYS.costPerMessageCents], 10) || 0,
+          inputCostPerMillionCents: pricing.inputCostPerMillionCents,
+          outputCostPerMillionCents: pricing.outputCostPerMillionCents,
         }}
       />
     </main>

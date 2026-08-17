@@ -1,10 +1,10 @@
 import { NextResponse } from "next/server";
-import { and, asc, eq, gte, sql } from "drizzle-orm";
-import { createUIMessageStreamResponse, streamText, toUIMessageStream } from "ai";
+import { and, asc, eq, sql } from "drizzle-orm";
+import { createUIMessageStream, createUIMessageStreamResponse, streamText, toUIMessageStream } from "ai";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { chats, messages, users } from "@/lib/schema";
-import { getCostPerMessageCents } from "@/lib/settings";
+import { computeCostCents, getTokenPricing } from "@/lib/settings";
 import { hermesModel, SYSTEM_PROMPT } from "@/lib/hermes";
 import { formatLegalContext, legalUnavailableResponse, searchLocalCorpus } from "@/lib/legal";
 
@@ -49,17 +49,17 @@ export async function POST(request: Request, { params }: { params: Promise<{ cha
     return NextResponse.json({ error: "Chat non trovata" }, { status: 404 });
   }
 
-  // Crediti: ogni messaggio ha un costo (in centesimi) impostato dall'admin.
-  // Gli admin non pagano. Qui si verifica solo che il credito sia sufficiente:
-  // l'addebito effettivo avviene dopo il recupero del contesto legale, così un
-  // errore a monte (503) non lascia l'utente addebitato senza risposta.
-  const costCents = await getCostPerMessageCents();
+  // Crediti a token: il costo esatto si conosce solo a generazione conclusa
+  // (token di input + output per milione). Qui si verifica solo che l'utente
+  // abbia credito residuo; l'addebito avviene in coda allo streaming. Gli admin
+  // non pagano.
+  const pricing = await getTokenPricing();
   const user = await db.query.users.findFirst({
     where: eq(users.id, session.user.id),
     columns: { role: true, balanceCents: true },
   });
-  const chargeable = user?.role !== "admin" && costCents > 0;
-  if (chargeable && (user?.balanceCents ?? 0) < costCents) {
+  const chargeable = user?.role !== "admin";
+  if (chargeable && (user?.balanceCents ?? 0) <= 0) {
     return NextResponse.json(
       { error: "Crediti insufficienti: contatta l'amministratore per ricaricare il tuo credito" },
       { status: 402 },
@@ -91,36 +91,64 @@ export async function POST(request: Request, { params }: { params: Promise<{ cha
     return legalUnavailableResponse(error);
   }
 
-  // Addebito atomico del costo del messaggio (ribadito qui contro corse concorrenti)
-  if (chargeable) {
-    const charged = await db
-      .update(users)
-      .set({ balanceCents: sql`${users.balanceCents} - ${costCents}` })
-      .where(and(eq(users.id, session.user.id), gte(users.balanceCents, costCents)))
-      .returning({ id: users.id });
-    if (charged.length === 0) {
-      return NextResponse.json(
-        { error: "Crediti insufficienti: contatta l'amministratore per ricaricare il tuo credito" },
-        { status: 402 },
-      );
-    }
-  }
-
   const result = streamText({
     model: hermesModel,
     system: `${SYSTEM_PROMPT}\n\n${legalContext}`,
     messages: history.map((m) => ({ role: m.role, content: m.content })),
-    onEnd: async ({ text }) => {
+    onEnd: async ({ text, usage }) => {
       try {
-        await db.insert(messages).values({ chatId, role: "assistant", content: text });
+        const inputTokens = usage?.inputTokens ?? 0;
+        const outputTokens = usage?.outputTokens ?? 0;
+        const costCents = computeCostCents(inputTokens, outputTokens, pricing);
+
+        await db.insert(messages).values({
+          chatId,
+          role: "assistant",
+          content: text,
+          inputTokens,
+          outputTokens,
+        });
         await db.update(chats).set({ updatedAt: new Date() }).where(eq(chats.id, chatId));
+
+        // Addebito a generazione conclusa: non può mai andare sotto zero
+        if (chargeable && costCents > 0) {
+          await db
+            .update(users)
+            .set({ balanceCents: sql`max(${users.balanceCents} - ${costCents}, 0)` })
+            .where(eq(users.id, session.user.id));
+        }
       } catch (error) {
         console.error("Errore durante il salvataggio della risposta:", error);
       }
     },
   });
 
-  return createUIMessageStreamResponse({ stream: toUIMessageStream({ stream: result.stream }) });
+  // Al flusso UI aggiungiamo in coda un data-part con il consumo token e il
+  // costo, così la chat può mostrarli sotto la risposta appena termina.
+  const uiStream = createUIMessageStream({
+    execute: async ({ writer }) => {
+      writer.merge(toUIMessageStream({ stream: result.stream }));
+      try {
+        const usage = await result.usage;
+        const inputTokens = usage.inputTokens ?? 0;
+        const outputTokens = usage.outputTokens ?? 0;
+        writer.write({
+          type: "data-usage",
+          data: {
+            inputTokens,
+            outputTokens,
+            costCents: chargeable
+              ? computeCostCents(inputTokens, outputTokens, pricing)
+              : 0,
+          },
+        });
+      } catch {
+        // se l'usage non è disponibile la chat mostra solo la risposta
+      }
+    },
+  });
+
+  return createUIMessageStreamResponse({ stream: uiStream });
 }
 
 export async function DELETE(_request: Request, { params }: { params: Promise<{ chatId: string }> }) {

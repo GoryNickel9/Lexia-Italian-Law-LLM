@@ -47,14 +47,13 @@ Crea lo schema e avvia:
 npm run db:push   # su Turso: tabelle users, chats, messages, settings
 npm run dev
 ```
-
 ## Funzionalità
 
-- **Tema chiaro/scuro** — toggle nella sidebar (e nelle pagine di login), preferenza salvata nel browser
+- **Tema chiaro/scuro** — toggle nella sidebar (e nelle pagine di login); la preferenza è salvata nel browser e, per gli utenti registrati, anche nel database: vale su tutti i dispositivi
 - **Layout a due colonne** — chat a sinistra, conversazione al centro: dalla schermata iniziale si può scrivere subito, la chat viene creata al primo invio
 - **Impostazioni** — cambio email e cambio password (con verifica della password attuale)
-- **Crediti in €** — ogni utente ha un credito (benvenuto: 5,00 €); ogni messaggio inviato scala il costo configurato; il credito residuo è visibile nella sidebar
-- **Pannello admin** (`/admin`, solo admin) — elenco degli utenti registrati, eliminazione account, aggiunta/impostazione del credito, modifica del costo per messaggio, apertura/chiusura delle registrazioni
+- **Crediti in € a token** — ogni utente ha un credito (benvenuto: 5,00 €); ogni risposta è tariffata in base ai token di input e output effettivamente consumati (prezzi €/milione impostabili dall'admin); sotto ogni risposta vengono mostrati token consumati e costo; il credito residuo è visibile nella sidebar
+- **Pannello admin** (`/admin`, solo admin) — elenco degli utenti registrati, eliminazione account, aggiunta/impostazione del credito, prezzi input/output per milione di token, apertura/chiusura delle registrazioni
 
 ### Amministratori
 

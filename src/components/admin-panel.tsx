@@ -14,7 +14,8 @@ type AdminUser = {
 
 type AdminSettings = {
   registrationsOpen: boolean;
-  costPerMessageCents: number;
+  inputCostPerMillionCents: number;
+  outputCostPerMillionCents: number;
 };
 
 const inputClass =
@@ -32,7 +33,10 @@ function eurosToCents(value: string): number | null {
 }
 
 function formatDate(iso: string) {
-  return new Intl.DateTimeFormat("it-IT", { dateStyle: "medium" }).format(new Date(iso));
+  return new Intl.DateTimeFormat("it-IT", {
+    dateStyle: "medium",
+    timeZone: "Europe/Rome",
+  }).format(new Date(iso));
 }
 
 export function AdminPanel({
@@ -44,7 +48,8 @@ export function AdminPanel({
 }) {
   const [users, setUsers] = useState(initialUsers);
   const [settings, setSettings] = useState(initialSettings);
-  const [costEuro, setCostEuro] = useState((initialSettings.costPerMessageCents / 100).toFixed(2));
+  const [inputCostEuro, setInputCostEuro] = useState((initialSettings.inputCostPerMillionCents / 100).toFixed(2));
+  const [outputCostEuro, setOutputCostEuro] = useState((initialSettings.outputCostPerMillionCents / 100).toFixed(2));
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [busyUserId, setBusyUserId] = useState<string | null>(null);
@@ -64,7 +69,8 @@ export function AdminPanel({
       const settingsData = await settingsRes.json();
       setUsers(usersData.users ?? []);
       setSettings(settingsData);
-      setCostEuro((settingsData.costPerMessageCents / 100).toFixed(2));
+      setInputCostEuro((settingsData.inputCostPerMillionCents / 100).toFixed(2));
+      setOutputCostEuro((settingsData.outputCostPerMillionCents / 100).toFixed(2));
     } catch (e) {
       setError(e instanceof Error ? e.message : "Errore di rete");
     }
@@ -128,10 +134,11 @@ export function AdminPanel({
     );
   }
 
-  async function handleSaveCost() {
-    const cents = eurosToCents(costEuro);
-    if (cents === null) {
-      setError("Inserisci un costo valido in euro (es. 0,02)");
+  async function handleSavePrices() {
+    const inputCents = eurosToCents(inputCostEuro);
+    const outputCents = eurosToCents(outputCostEuro);
+    if (inputCents === null || outputCents === null) {
+      setError("Inserisci prezzi validi in euro per milione di token (es. 2,00)");
       return;
     }
     await apiCall(
@@ -139,9 +146,12 @@ export function AdminPanel({
       {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ costPerMessageCents: cents }),
+        body: JSON.stringify({
+          inputCostPerMillionCents: inputCents,
+          outputCostPerMillionCents: outputCents,
+        }),
       },
-      "Costo per messaggio aggiornato.",
+      "Prezzi per milione di token aggiornati.",
     );
   }
 
@@ -179,25 +189,36 @@ export function AdminPanel({
 
           <div className="flex flex-wrap items-end justify-between gap-3 border-t border-line pt-4">
             <div>
-              <p className="text-sm font-medium">Costo per messaggio</p>
+              <p className="text-sm font-medium">Costi API (per milione di token)</p>
               <p className="text-xs text-muted">
-                Credito addebitato agli utenti per ogni messaggio inviato
-                (attuale: {formatEuro(settings.costPerMessageCents)}).
+                Credito addebitato in base ai token effettivamente consumati da ogni
+                risposta. Attuali: input {formatEuro(settings.inputCostPerMillionCents)} / M,
+                output {formatEuro(settings.outputCostPerMillionCents)} / M.
               </p>
             </div>
-            <div className="flex items-end gap-2">
+            <div className="flex flex-wrap items-end gap-4">
               <label className="flex flex-col gap-1 text-xs text-muted">
-                €
+                Input € / milione
                 <input
-                  value={costEuro}
-                  onChange={(e) => setCostEuro(e.target.value)}
+                  value={inputCostEuro}
+                  onChange={(e) => setInputCostEuro(e.target.value)}
                   inputMode="decimal"
-                  placeholder="0,02"
+                  placeholder="2,00"
                   className={`${inputClass} w-24`}
                 />
               </label>
-              <button type="button" onClick={handleSaveCost} className={primaryButton}>
-                Salva costo
+              <label className="flex flex-col gap-1 text-xs text-muted">
+                Output € / milione
+                <input
+                  value={outputCostEuro}
+                  onChange={(e) => setOutputCostEuro(e.target.value)}
+                  inputMode="decimal"
+                  placeholder="6,00"
+                  className={`${inputClass} w-24`}
+                />
+              </label>
+              <button type="button" onClick={handleSavePrices} className={primaryButton}>
+                Salva prezzi
               </button>
             </div>
           </div>

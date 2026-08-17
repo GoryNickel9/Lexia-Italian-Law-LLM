@@ -1,8 +1,10 @@
 "use client";
 
-// Toggle chiaro/scuro: la preferenza è salvata in localStorage ("lexia-theme")
-// e applicata come classe .dark su <html>. Lo script nel layout evita il lampo
-// al primo caricamento; le icone cambiano via CSS, senza stato React.
+// Toggle chiaro/scuro. La preferenza viene salvata sia in localStorage
+// ("lexia-theme", per il caricamento istantaneo sul dispositivo corrente) sia
+// nel database dell'utente (se autenticato), così vale su tutti i dispositivi.
+// Lo script nel layout applica il tema prima del primo render: prima localStorage,
+// poi il tema dell'account, poi la preferenza di sistema.
 export function ThemeToggle() {
   function toggle() {
     const root = document.documentElement;
@@ -13,6 +15,13 @@ export function ThemeToggle() {
     } catch {
       // localStorage non disponibile: il tema vale solo per la sessione
     }
+    void fetch("/api/user/theme", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ theme: next ? "dark" : "light" }),
+    }).catch(() => {
+      // non autenticato o offline: resta solo la preferenza locale
+    });
   }
 
   return (

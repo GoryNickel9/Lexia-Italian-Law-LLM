@@ -15,6 +15,9 @@ export const users = sqliteTable("users", {
   role: text("role", { enum: ["user", "admin"] }).notNull().default("user"),
   // Credito dell'utente in centesimi di euro (500 = 5,00 €)
   balanceCents: integer("balance_cents").notNull().default(sql`500`),
+  // Tema preferito ("dark" | "light" | null = segue il sistema), salvato nel db
+  // così la preferenza vale su tutti i dispositivi
+  theme: text("theme", { enum: ["dark", "light"] }),
   createdAt: integer("created_at", { mode: "timestamp" })
     .notNull()
     .default(sql`(unixepoch())`),
@@ -58,6 +61,10 @@ export const messages = sqliteTable(
       .references(() => chats.id, { onDelete: "cascade" }),
     role: text("role", { enum: ["user", "assistant"] }).notNull(),
     content: text("content").notNull(),
+    // Consumo token della risposta dell'assistente (null per i messaggi utente
+    // e per le risposte precedenti all'introduzione della tariffazione a token)
+    inputTokens: integer("input_tokens"),
+    outputTokens: integer("output_tokens"),
     createdAt: integer("created_at", { mode: "timestamp" })
       .notNull()
       .default(sql`(unixepoch())`),

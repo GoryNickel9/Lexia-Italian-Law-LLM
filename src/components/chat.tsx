@@ -5,12 +5,18 @@ import { useRouter } from "next/navigation";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport } from "ai";
 import ReactMarkdown from "react-markdown";
-import { formatEuro } from "@/lib/format";
+import { formatEuroPrecise, formatTokens } from "@/lib/format";
 
 type InitialMessage = {
   id: string;
   role: "user" | "assistant";
   parts: { type: "text"; text: string }[];
+};
+
+type TokenUsage = {
+  inputTokens: number;
+  outputTokens: number;
+  costCents?: number;
 };
 
 // Messaggio scritto nella schermata "nuova chat": viene inviato
@@ -21,24 +27,31 @@ export function Chat({
   chatId,
   chatTitle,
   initialMessages,
+  initialUsages,
   creditsExhausted,
-  costCents,
 }: {
   chatId: string;
   chatTitle: string;
   initialMessages: InitialMessage[];
+  initialUsages: Record<string, { inputTokens: number; outputTokens: number }>;
   creditsExhausted: boolean;
-  costCents: number;
 }) {
   const router = useRouter();
   const bottomRef = useRef<HTMLDivElement>(null);
   const [input, setInput] = useState("");
   const autoSentRef = useRef(false);
+  // Consumo dell'ultima risposta, arrivato dallo stream al termine
+  const [liveUsage, setLiveUsage] = useState<TokenUsage | null>(null);
 
   const { messages, sendMessage, status, error, stop } = useChat({
     id: chatId,
     messages: initialMessages,
     transport: new DefaultChatTransport({ api: `/api/chat/${chatId}` }),
+    onData: (part) => {
+      if (part.type === "data-usage") {
+        setLiveUsage(part.data as TokenUsage);
+      }
+    },
     onFinish: () => {
       // Aggiorna sidebar: titolo della chat e credito residuo
       router.refresh();
@@ -102,7 +115,7 @@ export function Chat({
           </div>
         ) : (
           <div className="flex flex-col gap-6">
-            {messages.map((message) => {
+            {messages.map((message, index) => {
               const textParts = message.parts.filter(
                 (part) => part.type === "text" && part.text.length > 0,
               );
@@ -118,6 +131,12 @@ export function Chat({
                 );
               }
 
+              // Consumo token: dal database per i messaggi storici, dallo
+              // stream per la risposta appena generata
+              const isLast = index === messages.length - 1;
+              const usage: TokenUsage | undefined = initialUsages[message.id]
+                ?? (isLast && liveUsage ? liveUsage : undefined);
+
               return (
                 <div key={message.id} className="flex justify-start">
                   <div className="max-w-[90%] rounded-2xl rounded-bl-sm border border-line bg-card px-4 py-2.5 text-sm leading-relaxed">
@@ -126,6 +145,15 @@ export function Chat({
                         <ReactMarkdown>{part.text}</ReactMarkdown>
                       </div>
                     ))}
+                    {usage && (
+                      <p className="mt-1.5 border-t border-line pt-1.5 text-[11px] text-muted">
+                        Input: {formatTokens(usage.inputTokens)} token · Output:{" "}
+                        {formatTokens(usage.outputTokens)} token
+                        {usage.costCents !== undefined &&
+                          usage.costCents > 0 &&
+                          ` · Costo: ${formatEuroPrecise(usage.costCents)}`}
+                      </p>
+                    )}
                   </div>
                 </div>
               );
@@ -137,8 +165,9 @@ export function Chat({
 
       {creditsExhausted ? (
         <p className="mb-2 rounded-lg bg-amber-500/10 px-3 py-2 text-sm text-amber-700 dark:text-amber-400">
-          Crediti esauriti: ogni messaggio costa {formatEuro(costCents)}. Contatta
-          l&apos;amministratore per ricaricare il tuo credito.
+          Crediti esauriti: il credito viene scalato in base ai token di input e
+          output effettivamente utilizzati. Contatta l&apos;amministratore per
+          ricaricare il tuo credito.
         </p>
       ) : error ? (
         <p className="mb-2 rounded-lg bg-red-500/10 px-3 py-2 text-sm text-red-600 dark:text-red-400">

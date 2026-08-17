@@ -22,11 +22,13 @@ export type SidebarUser = {
 };
 
 function formatDate(iso: string) {
+  // Fuso fisso: server (UTC su Vercel) e client devono produrre lo stesso testo
   return new Intl.DateTimeFormat("it-IT", {
     day: "2-digit",
     month: "short",
     hour: "2-digit",
     minute: "2-digit",
+    timeZone: "Europe/Rome",
   }).format(new Date(iso));
 }
 
