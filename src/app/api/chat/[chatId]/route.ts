@@ -5,6 +5,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { chats, messages } from "@/lib/schema";
 import { hermesModel, SYSTEM_PROMPT } from "@/lib/hermes";
+import { formatLegalContext, legalUnavailableResponse, searchLocalCorpus } from "@/lib/legal";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -62,9 +63,19 @@ export async function POST(request: Request, { params }: { params: Promise<{ cha
     limit: MAX_HISTORY_MESSAGES,
   });
 
+  // Il sito non lascia al profilo pubblico accesso a web/terminal/database:
+  // il contesto normativo viene recuperato server-side dall'API read-only locale.
+  let legalContext: string;
+  try {
+    const retrieved = await searchLocalCorpus(userText);
+    legalContext = formatLegalContext(retrieved);
+  } catch (error) {
+    return legalUnavailableResponse(error);
+  }
+
   const result = streamText({
     model: hermesModel,
-    system: SYSTEM_PROMPT,
+    system: `${SYSTEM_PROMPT}\n\n${legalContext}`,
     messages: history.map((m) => ({ role: m.role, content: m.content })),
     onEnd: async ({ text }) => {
       try {

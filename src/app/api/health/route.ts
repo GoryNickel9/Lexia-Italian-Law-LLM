@@ -44,7 +44,29 @@ async function checkHermes() {
   }
 }
 
+async function checkLegalSearch() {
+  const base = process.env.LEGAL_SEARCH_URL;
+  if (!base) return { ok: false, errore: "LEGAL_SEARCH_URL non configurata" };
+  try {
+    const res = await fetch(new URL("health", `${base.replace(/\/$/, "")}/`), {
+      headers: process.env.LEGAL_SEARCH_API_KEY
+        ? { Authorization: `Bearer ${process.env.LEGAL_SEARCH_API_KEY}` }
+        : undefined,
+      signal: AbortSignal.timeout(8000),
+    });
+    return res.ok
+      ? { ok: true }
+      : { ok: false, errore: `HTTP ${res.status} da ${base}/health` };
+  } catch (error) {
+    return { ok: false, errore: describe(error) };
+  }
+}
+
 export async function GET() {
-  const [turso, hermes] = await Promise.all([checkTurso(), checkHermes()]);
-  return NextResponse.json({ turso, hermes });
+  const [turso, hermes, legalSearch] = await Promise.all([
+    checkTurso(),
+    checkHermes(),
+    checkLegalSearch(),
+  ]);
+  return NextResponse.json({ turso, hermes, legalSearch });
 }

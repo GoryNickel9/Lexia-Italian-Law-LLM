@@ -2,13 +2,14 @@
 
 Il sito è **solo una porta** per parlare con il tuo **Hermes Agent** (che vive sulla tua VPS): registrazione/login, chat private per utente con streaming, e nient'altro. L'hosting del sito è su **Vercel**.
 
-- **Turso (SQLite)** — l'unico database del sito: utenti, chat e messaggi
-- **PostgreSQL sulla VPS** — è di Hermes Agent (la sua memoria): il sito **non ci si collega**
+- **Turso (SQLite)** — database del sito: utenti, chat e messaggi
+- **PostgreSQL sulla VPS** — corpus Hermes Legal; il sito non si collega direttamente al DB
+- **API read-only Hermes Legal** — retrieval server-side del corpus locale
 
 ```
-                          ┌─▶ Turso (utenti, chat, messaggi)
-Browser ──▶ Next.js (Vercel)
-                          └─▶ Hermes Agent (VPS, API OpenAI-compatible)
+Browser ──▶ Next.js (Vercel) ──▶ API retrieval Hermes Legal (VPS)
+                         └────▶ Hermes profile hermes_legal_site (VPS)
+                                  └─▶ risposta basata sul contesto locale
 ```
 
 ## Stack
@@ -33,9 +34,11 @@ Compila `.env.local`:
 | `TURSO_DATABASE_URL` | URL del database Turso (`libsql://...turso.io`); in locale puoi usare `file:./app.db` |
 | `TURSO_AUTH_TOKEN` | Token Turso (vuoto per i database `file:`) |
 | `AUTH_SECRET` | Genera con `npx auth secret` |
-| `HERMES_BASE_URL` | Base URL dell'API di Hermes, es. `https://hermes.tuodominio.it/v1` |
-| `HERMES_API_KEY` | API key se configurata sul tuo Hermes, altrimenti vuoto |
-| `HERMES_MODEL` | Identificativo del modello che Hermes si aspetta nel campo `model` |
+| `HERMES_BASE_URL` | Base URL del profilo legale, es. `https://hermes.tuodominio.it/p/hermes_legal_site/v1` |
+| `HERMES_API_KEY` | `API_SERVER_KEY` del profilo `hermes_legal_site` |
+| `HERMES_MODEL` | `hermes_legal_site` |
+| `LEGAL_SEARCH_URL` | URL HTTPS del retrieval API, es. `https://hermes.tuodominio.it/legal-api` |
+| `LEGAL_SEARCH_API_KEY` | Chiave del retrieval API read-only |
 
 Crea lo schema e avvia:
 
@@ -44,38 +47,79 @@ npm run db:push   # su Turso: tabelle users, chats, messages
 npm run dev
 ```
 
-## Hermes Agent dietro HTTPS
+## Hermes Agent e profilo legale dietro HTTPS
 
-1. Abilita l'API Server nel file `~/.hermes/.env` sulla VPS:
-   ```
-   API_SERVER_ENABLED=true
-   API_SERVER_KEY=<scegli-una-chiave-segreta>
-   ```
-   (opzionali: `API_SERVER_PORT=8642`, `API_SERVER_HOST` — lascialo su 127.0.0.1)
+Il profilo `hermes_legal_site` è configurato sulla VPS con toolsets vuoti: non ha accesso a
+terminal, browser, web, Telegram o Discord. Riceve dal sito soltanto il contesto recuperato
+dall'API read-only Hermes Legal.
 
-2. Avvia il gateway (che contiene l'API Server, in ascolto su `http://127.0.0.1:8642`):
-   ```
-   hermes gateway
-   ```
-   Per l'esecuzione permanente usa un service systemd con `ExecStart=/percorso/hermes gateway`.
+Il gateway predefinito deve servire il profilo tramite multiplexing:
 
-3. Mettilo dietro un reverse proxy HTTPS, es. con Caddy:
-   ```
-   hermes.tuodominio.it {
-       reverse_proxy 127.0.0.1:8642
-   }
-   ```
+```yaml
+gateway:
+  multiplex_profiles: true
+  multiplex_profile_allowlist:
+    - hermes_legal_site
+```
 
-4. Verifica dalla tua macchina che risponda come un endpoint OpenAI-compatible:
-   ```bash
-   curl https://hermes.tuodominio.it/v1/chat/completions \
-     -H "Authorization: Bearer <chiave-segreta>" \
-     -H "Content-Type: application/json" \
-     -d '{"model":"hermes-agent","messages":[{"role":"user","content":"Ciao"}]}'
-   ```
-   Nota: il nome del modello è il nome del profilo Hermes, `hermes-agent` per il profilo default.
+Il profilo secondario usa il prefisso HTTP `/p/hermes_legal_site/`. Configura sulla VPS,
+nel file `/root/.hermes/profiles/hermes_legal_site/.env` (senza committarlo):
 
-5. Sul sito imposta: `HERMES_BASE_URL=https://hermes.tuodominio.it/v1`, `HERMES_API_KEY=<chiave-segreta>`, `HERMES_MODEL=hermes-agent`.
+```text
+API_SERVER_ENABLED=true
+API_SERVER_KEY=<chiave-segreta-del-profilo>
+```
+
+Dopo aver impostato la chiave, riavvia il gateway predefinito. Dietro Caddy:
+
+```text
+hermes.tuodominio.it {
+    reverse_proxy 127.0.0.1:8642
+}
+```
+
+Il sito usa quindi:
+
+```text
+HERMES_BASE_URL=https://hermes.tuodominio.it/p/hermes_legal_site/v1
+HERMES_API_KEY=<API_SERVER_KEY-del-profilo>
+HERMES_MODEL=hermes_legal_site
+```
+
+## Retrieval locale Hermes Legal
+
+Il sito non interroga PostgreSQL direttamente. La VPS espone il servizio read-only
+`/opt/hermes-legal/scripts/legal_api.py`, con endpoint:
+
+```text
+GET  /health
+POST /search
+```
+
+Il servizio esegue `semantic_search()` nel corpus locale e restituisce testo, vigenza e
+citazione. Il file systemd predisposto è:
+
+```text
+/etc/systemd/system/hermes-legal-search.service
+```
+
+Configurare `/etc/hermes-legal/legal-api.env` con `LEGAL_API_KEY`, quindi avviare:
+
+```bash
+sudo systemctl enable --now hermes-legal-search
+```
+
+Pubblicare `/search` dietro HTTPS, per esempio come `https://hermes.tuodominio.it/legal-api`,
+e impostare `LEGAL_SEARCH_URL` e `LEGAL_SEARCH_API_KEY` nelle variabili Vercel.
+La route Next.js restituisce 503 se il retrieval locale non è configurato o non è raggiungibile:
+non esegue fallback web e non lascia il profilo rispondere senza fonti locali.
+
+## Collegamento API standard
+
+Il sito usa `@ai-sdk/openai` in modalità Chat Completions (`/v1/chat/completions`).
+Il profilo può quindi essere messaggiato direttamente dal sito dopo aver configurato
+la URL prefissata `/p/hermes_legal_site/v1` e la chiave del profilo.
+
 
 ## Ambito "solo diritto italiano"
 
@@ -86,7 +130,7 @@ Lo storico conversazione inviato a Hermes viene sempre caricato dal database, ma
 ## Deploy su Vercel
 
 1. Importa il repository su Vercel.
-2. In **Settings → Environment Variables** aggiungi le 6 variabili di `.env.example`, spuntando **Production** (e Preview se lo usi).
+2. In **Settings → Environment Variables** aggiungi le variabili di `.env.example`, spuntando **Production** (e Preview se lo usi). In produzione sono obbligatorie anche `LEGAL_SEARCH_URL` e `LEGAL_SEARCH_API_KEY`.
 3. Deploy. La prima volta crea lo schema su Turso:
    ```bash
    TURSO_DATABASE_URL=libsql://... TURSO_AUTH_TOKEN=eyJ... npm run db:push
