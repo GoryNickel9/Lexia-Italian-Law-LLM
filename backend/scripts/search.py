@@ -76,6 +76,7 @@ def citation(r):
 
 RERANK_CANDIDATES = int(os.environ.get('LEGAL_RERANK_CANDIDATES', '100'))
 RRF_K = int(os.environ.get('LEGAL_RRF_K', '60'))
+FTS_CANDIDATES = int(os.environ.get('LEGAL_FTS_CANDIDATES', '60'))
 
 
 def rerank_enabled():
@@ -116,8 +117,8 @@ def semantic_search(query, jurisdiction=None, max_results=10, ref_date=None, rer
     qexp = expand_query(query)
     qvec = embed(qexp)   # embedding della query espansa: richiamo migliore
     vec_lit = '[' + ','.join(f'{v:.6f}' for v in qvec) + ']'
-    candidates = max(max_results * 4, 16) if rerank else max_results
-    candidates = min(candidates, RERANK_CANDIDATES)
+    # finestra vettoriale sempre ampia: la fusione ibrida con l'FTS vive di candidati
+    candidates = min(max(max_results * 4, 16), RERANK_CANDIDATES)
     conn = connect()
     try:
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
@@ -128,7 +129,9 @@ def semantic_search(query, jurisdiction=None, max_results=10, ref_date=None, rer
                    act.source, act.jurisdiction,
                    (SELECT authority_level FROM sources WHERE source_name = act.source) AS authority,
                    CASE WHEN act.urn LIKE '%%costituzione%%' THEN 0
-                        WHEN act.urn LIKE '%%regio.decreto%%' THEN 1 ELSE 2 END AS code_prio,
+                        WHEN act.urn LIKE '%%regio.decreto:1930-10-19;1398%%' THEN 1
+                        WHEN act.urn LIKE '%%regio.decreto:1942-03-16;262%%' THEN 1
+                        WHEN act.urn LIKE '%%regio.decreto%%' THEN 2 ELSE 3 END AS code_prio,
                    (c.embedding <=> %s::vector) AS distance
             FROM legal_chunks c
             JOIN legal_articles a ON a.id = c.article_id
@@ -147,6 +150,28 @@ def semantic_search(query, jurisdiction=None, max_results=10, ref_date=None, rer
         q += " LIMIT %s"
         cur.execute(q, base_params_v + [candidates])
         out = [dict(r) for r in cur.fetchall()]
+        # --- FTS sempre attivo: ordinamento lessicale (OR dei token espansi) ---
+        # Con AND implicito (websearch) una query lunga darebbe zero risultati;
+        # l'OR premia gli articoli con piu' termini della domanda via ts_rank.
+        fts_order = []
+        fts_tokens = [t for t in re.sub(r"[^\w\s]", " ", qexp).split() if len(t) > 3]
+        if fts_tokens:
+            fts_query = " | ".join(t.lower() for t in fts_tokens)
+            cur.execute("""
+                SELECT a.id
+                FROM legal_chunks c
+                JOIN legal_articles a ON a.id = c.article_id
+                JOIN legal_acts act ON act.id = c.act_id
+                WHERE c.embedding IS NOT NULL
+                  AND (a.valid_from IS NULL OR a.valid_from <= %s)
+                  AND (a.valid_to IS NULL OR a.valid_to >= %s)
+                  AND to_tsvector('simple', a.text || ' ' || COALESCE(a.article_heading,''))
+                      @@ to_tsquery('simple', %s)
+                ORDER BY ts_rank(to_tsvector('simple', a.text || ' ' || COALESCE(a.article_heading,'')),
+                                 to_tsquery('simple', %s)) DESC
+                LIMIT %s
+            """, [ref, ref, fts_query, fts_query, FTS_CANDIDATES])
+            fts_order = [r['id'] for r in cur.fetchall()]
         # riferimenti espliciti ad articoli ("art. 577", "articolo 576"): i chunk
         # con quel numero entrano SEMPRE nei candidati con distanza 0 (hit esatto),
         # così una domanda numerica trova la norma anche se l'embedding non la
@@ -158,6 +183,7 @@ def semantic_search(query, jurisdiction=None, max_results=10, ref_date=None, rer
             if set(syns) & toks:
                 tema_nums.extend(arts)
         inj = sorted(set(art_refs) | set(tema_nums))
+        exact_ids = set()
         if inj:
             cur.execute(
                 base_q + " AND a.article_number = ANY(%s)"
@@ -166,9 +192,12 @@ def semantic_search(query, jurisdiction=None, max_results=10, ref_date=None, rer
             exact = {r['id']: r for r in cur.fetchall()}
             by_id = {r['id']: r for r in out}
             for rid, row in exact.items():
-                # i codici (Costituzione, R.D. come c.p./c.c.) hanno priorita':
-                # offset -0.05 cosi' il c.p. batte atti minori con lo stesso numero
-                prio_off = 0.05 if row['code_prio'] in (0, 1) else 0.0
+                exact_ids.add(rid)
+                # i codici hanno priorita' (Costituzione, c.p./c.c. > altri R.D.):
+                # l'offset nella distanza evita che atti minori con lo stesso
+                # numero battano il codice per pochi match lessicali
+                prio = row['code_prio']
+                prio_off = 0.08 if prio in (0, 1) else (0.03 if prio == 2 else 0.0)
                 if rid in by_id:
                     # l'hit esatto era gia' tra i candidati: azzera la distanza
                     # cosi' sale in cima invece di restare sepolto dal ranking
@@ -176,6 +205,24 @@ def semantic_search(query, jurisdiction=None, max_results=10, ref_date=None, rer
                 else:
                     row['distance'] = -prio_off
                     out.append(dict(row))
+        # keyword boost: deduplicato e con peso piccolo — rompe i pareggi
+        # senza ribaltare l'ordinamento (vale anche per il tier esatto)
+        kw = list(dict.fromkeys(w for w in qexp.lower().split() if len(w) > 3))
+        boost = float(os.environ.get('LEGAL_KEYWORD_BOOST', '0.01'))
+        for r in out:
+            txt = (r['text'] or '').lower()
+            bonus = sum(1 for w in kw if w in txt)
+            r['distance'] = round(float(r.get('distance') if r.get('distance') is not None else 1.0) - boost * bonus, 4)
+        # --- Fusione ibrida RRF (vettoriale + FTS, + cross-encoder se opt-in) ---
+        # Gli hit esatti (numero/tema) restano un tier separato: la fusione li
+        # diluirebbe quando la lista FTS non li contiene (es. "art. 577").
+        exact_rows = [r for r in out if r['id'] in exact_ids]
+        rest_rows = [r for r in out if r['id'] not in exact_ids]
+        by_distance = sorted(rest_rows, key=lambda r: float(r.get('distance') if r.get('distance') is not None else 1.0))
+        ranked_lists = [[r['id'] for r in by_distance]]
+        fts_ids = [i for i in fts_order if i not in exact_ids]
+        if fts_ids:
+            ranked_lists.append(fts_ids)
         if rerank and rerank_enabled():
             try:
                 import reranker
@@ -186,25 +233,15 @@ def semantic_search(query, jurisdiction=None, max_results=10, ref_date=None, rer
                 scores = reranker.score_pairs([(query, r['text'] or '') for r in out])
                 for r, s in zip(out, scores):
                     r['rerank_score'] = round(float(s), 4)
-                by_distance = sorted(out, key=lambda r: float(r.get('distance') if r.get('distance') is not None else 1.0))
-                by_rerank = sorted(out, key=lambda r: r['rerank_score'], reverse=True)
-                fused = _rrf_fusion([[r['id'] for r in by_distance],
-                                     [r['id'] for r in by_rerank]])
-                order = {item_id: rank for rank, item_id in enumerate(fused)}
-                out.sort(key=lambda r: order.get(r['id'], 10**9))
-                return out[:max_results]
+                by_rerank = sorted(rest_rows, key=lambda r: r['rerank_score'], reverse=True)
+                ranked_lists.append([r['id'] for r in by_rerank])
             except Exception:
-                pass  # degrada al percorso keyword boost
-        # keyword boost: deduplicato e con peso piccolo — serve a rompere i
-        # pareggi, non a ribaltare l'ordinamento vettoriale
-        kw = list(dict.fromkeys(w for w in qexp.lower().split() if len(w) > 3))
-        boost = float(os.environ.get('LEGAL_KEYWORD_BOOST', '0.01'))
-        for r in out:
-            txt = (r['text'] or '').lower()
-            bonus = sum(1 for w in kw if w in txt)
-            r['distance'] = round(float(r.get('distance') if r.get('distance') is not None else 1.0) - boost * bonus, 4)
-        out.sort(key=lambda r: r['distance'])
-        return out[:max_results]
+                ranked_lists = ranked_lists[:2]  # degrada: resta ibrido vector+fts
+        fused = _rrf_fusion(ranked_lists)
+        order = {item_id: rank for rank, item_id in enumerate(fused)}
+        rest_rows.sort(key=lambda r: order.get(r['id'], 10**9))
+        exact_rows.sort(key=lambda r: r['distance'])
+        return (exact_rows + rest_rows)[:max_results]
     finally:
         conn.close()
 

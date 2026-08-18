@@ -89,6 +89,24 @@ Scaricati in `/opt/hermes-legal/models/` sulla VPS:
 
 ## Changelog
 
+### 2026-08-18 — ricerca ibrida FTS+semantica sempre attiva + temi estesi
+- Fusione RRF **sempre attiva**: ranking vettoriale + ordinamento FTS (OR dei
+  token espansi, `to_tsquery`, `ts_rank`) anche senza cross-encoder; il
+  cross-encoder resta opt-in come terza lista. Gli hit esatti (numero/tema)
+  restano un tier separato, fuori dalla fusione (RRF li diluirebbe).
+- Finestra vettoriale sempre ampia (min 16 candidati, `LEGAL_FTS_CANDIDATES`
+  default 60 per l'FTS).
+- `TEMA_ARTICOLI` esteso: rapina, percosse/lesioni, diffamazione, calunnia,
+  violenza sessuale, minacce, danneggiamento, omicidio stradale (589-bis),
+  locazione (c.c. 1571-1591), separazione (156 c.c.); sinonimi nuovi in
+  `EXPANSIONS` (scippo, pestaggio, stupro, minacce, vandalismo...).
+- Priorita' codici a tre livelli: Costituzione e c.p./c.c. (URN 1398/262) >
+  altri R.D. > DPR/D.Lgs, con offset di distanza differenziati (0.08/0.03/0).
+- Verifiche: "Pene omicidio e tipologie" -> 579, 577, 578, 576, 589, 575
+  (c.p.); "scippo" -> 624-bis #1; "danneggiato" -> 635 #1; "stradale" ->
+  589-bis in top-2; T1-T15 ALL PASS. Il profilo Lexia cita ora 576/577 c.p.
+  nella risposta sulle pene per omicidio.
+
 ### 2026-08-18 — retrieval: temi con articoli di riferimento + priorita' codici
 - Nuova mappa `TEMA_ARTICOLI` (omicidio, furto, truffa, danno, stalking,
   licenziamento): le domande su un tema iniettano SEMPRE gli articoli chiave

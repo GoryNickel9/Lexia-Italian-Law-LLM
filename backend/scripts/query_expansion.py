@@ -62,6 +62,22 @@ EXPANSIONS = [
      "diffamazione ingiuria calunnia"),
     ({"tribunale", "giudice", "causa", "processo", "querela", "denuncia", "denunciare", "citazione", "ricorso"},
      "processo tribunale giudice querela denuncia ricorso"),
+    ({"scippo", "scippare", "borseggio", "scippato"},
+     "furto scippo strappo sottrazione"),
+    ({"percosse", "percuotere", "pestaggio", "picchiare", "picchiato"},
+     "percosse lesioni personali"),
+    ({"stupro", "molestie", "molestare", "molestato"},
+     "violenza sessuale atti sessuali"),
+    ({"minaccia", "minacce", "minacciare", "minacciato"},
+     "minaccia violenza privata"),
+    ({"danneggiamento", "danneggiare", "danneggiato", "danneggia", "vandalismo", "imbrattare"},
+     "danneggiamento danneggiare"),
+    ({"calunnia", "calunniare", "calunniato"},
+     "calunnia falsa accusa"),
+    ({"separazione", "separarsi", "divorzio", "divorziare"},
+     "separazione divorzio effetti patrimoniali coniugi"),
+    ({"rapina", "rapine"},
+     "rapina violenza minaccia impossessamento"),
 ]
 
 
@@ -85,13 +101,26 @@ def normalize_tokens(query):
 TEMA_ARTICOLI = {
     ("omicidio", "omicidi", "uccidere", "uccido", "ammazzare", "ammazzo"): [
         "575", "576", "577", "578", "579", "584", "589"],
-    ("furto", "rubare", "rubo", "ruba", "sottrazione", "impossessamento"): [
+    ("furto", "rubare", "rubo", "ruba", "sottrazione", "impossessamento",
+     "scippo", "scippare", "scippato"): [
         "624", "624-bis", "625", "626", "628"],
     ("truffa", "truffe"): ["640", "640-bis"],
     ("risarcimento", "risarcire", "risarcisce"): ["2043"],
     ("danno", "danni"): ["2043", "2050"],
     ("stalking", "persecutori"): ["612-bis"],
     ("licenziamento", "licenziare", "licenziato"): ["2118", "2119"],
+    ("rapina", "rapine"): ["628", "628-bis"],
+    ("percosse", "percuotere", "pestaggio", "picchiare", "picchiato"): ["581", "582", "583", "590"],
+    ("lesioni", "ferito", "ferisce", "feriscono"): ["582", "583", "590"],
+    ("diffamazione", "diffamare", "diffamato"): ["595", "596"],
+    ("calunnia", "calunniare", "calunniato"): ["368"],
+    ("stupro", "sessuale", "sessuali", "molestie", "molestare"): ["609-bis", "609-ter", "609-quater"],
+    ("minaccia", "minacce", "minacciare", "minacciato"): ["612"],
+    ("danneggiamento", "danneggiare", "danneggiato", "danneggia", "danneggiano",
+     "vandalismo", "imbrattare"): ["635"],
+    ("stradale", "stradali"): ["589-bis"],
+    ("locazione", "affitto", "affittare", "affittuario", "conduttore"): ["1571", "1575", "1587", "1591"],
+    ("separazione", "separarsi", "divorzio", "divorziare"): ["156"],
 }
 
 
