@@ -30,15 +30,14 @@ async function checkHermes() {
   const base = process.env.HERMES_BASE_URL;
   if (!base) return { ok: false, errore: "HERMES_BASE_URL non configurata" };
   try {
+    // Verifica senza chiave: il gateway risponde 401 quando la route del profilo
+    // è viva. Con la chiave la richiesta raggiunge l'API del profilo, che non
+    // espone /models e risponderebbe 404 anche a sistema perfettamente sano.
     const res = await fetch(new URL("models", base), {
-      headers: process.env.HERMES_API_KEY
-        ? { Authorization: `Bearer ${process.env.HERMES_API_KEY}` }
-        : undefined,
       signal: AbortSignal.timeout(8000),
     });
-    return res.ok
-      ? { ok: true }
-      : { ok: false, errore: `HTTP ${res.status} da ${base}/models` };
+    if (res.status === 200 || res.status === 401) return { ok: true };
+    return { ok: false, errore: `HTTP ${res.status} da ${base}/models` };
   } catch (error) {
     return { ok: false, errore: describe(error) };
   }
