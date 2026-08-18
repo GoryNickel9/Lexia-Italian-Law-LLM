@@ -33,15 +33,17 @@ export function Chat({
   chatId: string;
   chatTitle: string;
   initialMessages: InitialMessage[];
-  initialUsages: Record<string, { inputTokens: number; outputTokens: number }>;
+  initialUsages: Record<string, TokenUsage>;
   creditsExhausted: boolean;
 }) {
   const router = useRouter();
   const bottomRef = useRef<HTMLDivElement>(null);
   const [input, setInput] = useState("");
   const autoSentRef = useRef(false);
-  // Consumo dell'ultima risposta, arrivato dallo stream al termine
-  const [liveUsage, setLiveUsage] = useState<TokenUsage | null>(null);
+  // Consumo delle risposte generate in questa sessione, arrivato dallo stream
+  // al termine di ogni generazione (chiave: id del messaggio assistente).
+  // Quello delle risposte storiche arriva invece dal database.
+  const [liveUsages, setLiveUsages] = useState<Record<string, TokenUsage>>({});
 
   const { messages, sendMessage, status, error, stop } = useChat({
     id: chatId,
@@ -49,7 +51,13 @@ export function Chat({
     transport: new DefaultChatTransport({ api: `/api/chat/${chatId}` }),
     onData: (part) => {
       if (part.type === "data-usage") {
-        setLiveUsage(part.data as TokenUsage);
+        const usage = part.data as TokenUsage;
+        const lastAssistant = [...messagesRef.current]
+          .reverse()
+          .find((m) => m.role === "assistant");
+        if (lastAssistant) {
+          setLiveUsages((prev) => ({ ...prev, [lastAssistant.id]: usage }));
+        }
       }
     },
     onFinish: () => {
@@ -57,6 +65,13 @@ export function Chat({
       router.refresh();
     },
   });
+
+  // Il data-part arriva a stream concluso: serve l'ultimo messaggio assistente
+  // senza dipendere da una closure stantia di `messages`
+  const messagesRef = useRef(messages);
+  useEffect(() => {
+    messagesRef.current = messages;
+  }, [messages]);
 
   const busy = status === "submitted" || status === "streaming";
 
@@ -96,12 +111,12 @@ export function Chat({
   }
 
   return (
-    <main className="mx-auto flex w-full max-w-3xl flex-1 flex-col px-4">
+    <main className="mx-auto flex min-h-0 w-full max-w-3xl flex-1 flex-col px-4">
       <header className="border-b border-line py-3">
         <h1 className="truncate text-sm font-medium">{chatTitle}</h1>
       </header>
 
-      <div className="flex-1 overflow-y-auto py-6">
+      <div className="min-h-0 flex-1 overflow-y-auto py-6">
         {messages.length === 0 ? (
           <div className="flex h-full flex-col items-center justify-center rounded-2xl border border-dashed border-line p-10 text-center">
             <h2 className="text-lg font-semibold">Lexia</h2>
@@ -115,7 +130,7 @@ export function Chat({
           </div>
         ) : (
           <div className="flex flex-col gap-6">
-            {messages.map((message, index) => {
+            {messages.map((message) => {
               const textParts = message.parts.filter(
                 (part) => part.type === "text" && part.text.length > 0,
               );
@@ -132,10 +147,8 @@ export function Chat({
               }
 
               // Consumo token: dal database per i messaggi storici, dallo
-              // stream per la risposta appena generata
-              const isLast = index === messages.length - 1;
-              const usage: TokenUsage | undefined = initialUsages[message.id]
-                ?? (isLast && liveUsage ? liveUsage : undefined);
+              // stream per le risposte generate in questa sessione
+              const usage = initialUsages[message.id] ?? liveUsages[message.id];
 
               return (
                 <div key={message.id} className="flex justify-start">

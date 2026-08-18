@@ -68,6 +68,9 @@ export const messages = sqliteTable(
     // e per le risposte precedenti all'introduzione della tariffazione a token)
     inputTokens: integer("input_tokens"),
     outputTokens: integer("output_tokens"),
+    // Costo effettivamente addebitato in millesimi di centesimo: salvato qui
+    // perché i prezzi possono cambiare e la chat deve mostrare quello pagato
+    costMillicents: integer("cost_millicents"),
     createdAt: integer("created_at", { mode: "timestamp" })
       .notNull()
       .default(sql`(unixepoch())`),

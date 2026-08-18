@@ -31,11 +31,10 @@ export function formatEuroPrecise(cents: number): string {
 export function formatEuroFromMillicents(millicents: number): string {
   const sign = millicents < 0 ? "-" : "";
   const fixed = (Math.abs(millicents) / 100_000).toFixed(5).replace(/0+$/, "").replace(/\.$/, "");
-  if (!fixed.includes(",")) {
-    return `${sign}${groupThousands(fixed)},00\u00A0€`;
-  }
   const [int, dec] = fixed.split(".");
-  return `${sign}${groupThousands(int)},${dec}\u00A0€`;
+  return dec === undefined
+    ? `${sign}${groupThousands(int)},00\u00A0€`
+    : `${sign}${groupThousands(int)},${dec}\u00A0€`;
 }
 
 /** Prezzo per milione di token (millesimi di cent) -> "0,014 € / milione". */

@@ -106,6 +106,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ cha
           content: text,
           inputTokens,
           outputTokens,
+          costMillicents,
         });
         await db.update(chats).set({ updatedAt: new Date() }).where(eq(chats.id, chatId));
 

@@ -3,6 +3,7 @@ import { and, asc, eq } from "drizzle-orm";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { chats, messages, users } from "@/lib/schema";
+import { computeCostMillicents, getTokenPricing } from "@/lib/settings";
 import { Chat } from "@/components/chat";
 
 export const dynamic = "force-dynamic";
@@ -18,7 +19,7 @@ export default async function ChatPage({ params }: { params: Promise<{ id: strin
   });
   if (!chat) notFound();
 
-  const [history, userRow] = await Promise.all([
+  const [history, userRow, pricing] = await Promise.all([
     db.query.messages.findMany({
       where: eq(messages.chatId, id),
       orderBy: asc(messages.createdAt),
@@ -27,6 +28,7 @@ export default async function ChatPage({ params }: { params: Promise<{ id: strin
       where: eq(users.id, session.user.id),
       columns: { balanceCents: true },
     }),
+    getTokenPricing(),
   ]);
 
   const initialMessages = history.map((m) => ({
@@ -35,11 +37,22 @@ export default async function ChatPage({ params }: { params: Promise<{ id: strin
     parts: [{ type: "text" as const, text: m.content }],
   }));
 
-  // Consumo token delle risposte già salvate nel database
+  // Consumo token e costo delle risposte già salvate nel database. Per le
+  // risposte precedenti all'aggiunta della colonna cost_millicents il costo
+  // viene ricalcolato con i prezzi correnti (miglior stima disponibile).
   const initialUsages = Object.fromEntries(
     history
       .filter((m) => m.role === "assistant" && (m.inputTokens !== null || m.outputTokens !== null))
-      .map((m) => [m.id, { inputTokens: m.inputTokens ?? 0, outputTokens: m.outputTokens ?? 0 }]),
+      .map((m) => [
+        m.id,
+        {
+          inputTokens: m.inputTokens ?? 0,
+          outputTokens: m.outputTokens ?? 0,
+          costMillicents:
+            m.costMillicents ??
+            computeCostMillicents(m.inputTokens ?? 0, m.outputTokens ?? 0, pricing),
+        },
+      ]),
   );
 
   const creditsExhausted = (userRow?.balanceCents ?? 0) <= 0;
