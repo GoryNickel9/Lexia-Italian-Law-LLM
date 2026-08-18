@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/admin";
-import { SETTING_KEYS, getAllSettings, getTokenPricing, setSetting } from "@/lib/settings";
+import { SETTING_KEYS, getAllSettings, getAllTokenPricing, setSetting } from "@/lib/settings";
 
 export const runtime = "nodejs";
 
@@ -10,10 +10,11 @@ export async function GET() {
     return NextResponse.json({ error: "Accesso riservato agli amministratori" }, { status: 403 });
   }
 
-  const [settings, pricing] = await Promise.all([getAllSettings(), getTokenPricing()]);
+  const [settings, pricing] = await Promise.all([getAllSettings(), getAllTokenPricing()]);
   return NextResponse.json({
     registrationsOpen: settings[SETTING_KEYS.registrationsOpen] === "true",
-    ...pricing,
+    offPeak: pricing.offPeak,
+    peak: pricing.peak,
   });
 }
 
@@ -24,6 +25,27 @@ const MAX_PRICE_MC = 100_000_000;
 function validPrice(value: unknown): value is number {
   return typeof value === "number" && Number.isInteger(value) && value >= 0 && value <= MAX_PRICE_MC;
 }
+
+// Corrispondenza fra i campi di ciascuna fascia nel body e le chiavi delle
+// impostazioni: body.offPeak usa le chiavi off-peak, body.peak quelle peak.
+const PRICE_GROUPS = [
+  {
+    group: "offPeak",
+    keys: {
+      inputPricePerMillionMc: SETTING_KEYS.inputPricePerMillionMc,
+      outputPricePerMillionMc: SETTING_KEYS.outputPricePerMillionMc,
+    },
+  },
+  {
+    group: "peak",
+    keys: {
+      inputPricePerMillionMc: SETTING_KEYS.inputPricePeakPerMillionMc,
+      outputPricePerMillionMc: SETTING_KEYS.outputPricePeakPerMillionMc,
+    },
+  },
+] as const;
+
+const PRICE_FIELDS = ["inputPricePerMillionMc", "outputPricePerMillionMc"] as const;
 
 export async function PATCH(request: Request) {
   const adminId = await requireAdmin();
@@ -38,24 +60,23 @@ export async function PATCH(request: Request) {
   }
 
   const invalidPrices: string[] = [];
-  if (body?.inputPricePerMillionMc !== undefined) {
-    if (validPrice(body.inputPricePerMillionMc)) {
-      await setSetting(SETTING_KEYS.inputPricePerMillionMc, String(body.inputPricePerMillionMc));
-    } else {
-      invalidPrices.push("inputPricePerMillionMc");
-    }
-  }
-  if (body?.outputPricePerMillionMc !== undefined) {
-    if (validPrice(body.outputPricePerMillionMc)) {
-      await setSetting(SETTING_KEYS.outputPricePerMillionMc, String(body.outputPricePerMillionMc));
-    } else {
-      invalidPrices.push("outputPricePerMillionMc");
+  for (const { group, keys } of PRICE_GROUPS) {
+    const fields = body?.[group];
+    if (typeof fields !== "object" || fields === null) continue;
+    for (const field of PRICE_FIELDS) {
+      const value: unknown = fields[field];
+      if (value === undefined) continue;
+      if (validPrice(value)) {
+        await setSetting(keys[field], String(value));
+      } else {
+        invalidPrices.push(`${group}.${field}`);
+      }
     }
   }
   if (invalidPrices.length > 0) {
     return NextResponse.json(
       {
-        error: `${invalidPrices.join(" e ")} devono essere interi tra 0 e ${MAX_PRICE_MC} (millesimi di centesimo per milione di token)`,
+        error: `${invalidPrices.join(", ")} devono essere interi tra 0 e ${MAX_PRICE_MC} (millesimi di centesimo per milione di token)`,
       },
       { status: 400 },
     );

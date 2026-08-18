@@ -3,7 +3,7 @@ import { and, asc, eq } from "drizzle-orm";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { chats, messages, users } from "@/lib/schema";
-import { computeCostMillicents, getTokenPricing } from "@/lib/settings";
+import { computeCostMillicents, getAllTokenPricing, isPeakHour } from "@/lib/settings";
 import { Chat } from "@/components/chat";
 
 export const dynamic = "force-dynamic";
@@ -28,7 +28,7 @@ export default async function ChatPage({ params }: { params: Promise<{ id: strin
       where: eq(users.id, session.user.id),
       columns: { balanceCents: true },
     }),
-    getTokenPricing(),
+    getAllTokenPricing(),
   ]);
 
   const initialMessages = history.map((m) => ({
@@ -39,7 +39,8 @@ export default async function ChatPage({ params }: { params: Promise<{ id: strin
 
   // Consumo token e costo delle risposte già salvate nel database. Per le
   // risposte precedenti all'aggiunta della colonna cost_millicents il costo
-  // viene ricalcolato con i prezzi correnti (miglior stima disponibile).
+  // viene ricalcolato con i prezzi correnti, usando la fascia (peak/off-peak)
+  // dell'orario in cui il messaggio è stato generato.
   const initialUsages = Object.fromEntries(
     history
       .filter((m) => m.role === "assistant" && (m.inputTokens !== null || m.outputTokens !== null))
@@ -50,7 +51,11 @@ export default async function ChatPage({ params }: { params: Promise<{ id: strin
           outputTokens: m.outputTokens ?? 0,
           costMillicents:
             m.costMillicents ??
-            computeCostMillicents(m.inputTokens ?? 0, m.outputTokens ?? 0, pricing),
+            computeCostMillicents(
+              m.inputTokens ?? 0,
+              m.outputTokens ?? 0,
+              isPeakHour(m.createdAt) ? pricing.peak : pricing.offPeak,
+            ),
         },
       ]),
   );

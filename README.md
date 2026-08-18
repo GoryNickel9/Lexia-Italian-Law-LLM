@@ -52,12 +52,12 @@ npm run dev
 - **Tema chiaro/scuro** — toggle nella sidebar (e nelle pagine di login); la preferenza è salvata nel browser e, per gli utenti registrati, anche nel database: vale su tutti i dispositivi
 - **Layout a due colonne** — chat a sinistra, conversazione al centro: dalla schermata iniziale si può scrivere subito, la chat viene creata al primo invio
 - **Impostazioni** — cambio email e cambio password (con verifica della password attuale)
-- **Crediti in € a token** — ogni utente ha un credito (benvenuto: 5,00 €); ogni risposta è tariffata in base ai token di input e output effettivamente consumati (prezzi €/milione con fino a 3 decimali, es. €0,014); sotto ogni risposta vengono mostrati token consumati e costo; il credito residuo è visibile nella sidebar; i costi sotto il centesimo vengono accumulati e scalati appena maturano centesimi interi; **tutti pagano, admin compresi**
-- **Pannello admin** (`/admin`, solo admin) — elenco degli utenti registrati, eliminazione account, aggiunta/impostazione del credito, prezzi input/output per milione di token, apertura/chiusura delle registrazioni
+- **Crediti in € a token** — ogni utente ha un credito (benvenuto: 5,00 €); ogni risposta è tariffata in base ai token di input e output effettivamente consumati (prezzi €/milione con fino a 3 decimali, es. €0,014) su due fasce orarie: **peak** 01:00–04:00 e 06:00–10:00 UTC, **off-peak** in tutte le altre ore (la fascia è quella dell'invio del messaggio); sotto ogni risposta vengono mostrati token consumati e costo; il credito residuo è visibile nella sidebar; i costi sotto il centesimo vengono accumulati e scalati appena maturano centesimi interi; **tutti pagano, admin compresi**
+- **Pannello admin** (`/admin`, solo admin) — elenco degli utenti registrati, eliminazione account, aggiunta/impostazione del credito, prezzi input/output per milione di token per entrambe le fasce (peak e off-peak), apertura/chiusura delle registrazioni
 
 ### Amministratori
 
-Gli amministratori sono le email elencate in `ADMIN_EMAILS` (variabile d'ambiente, su Vercel e in `.env.local`): al primo login dopo la configurazione l'account viene promosso sul database. Gli admin non pagano i messaggi e vedono il pulsante **Admin** nella sidebar accanto a **Impostazioni**.
+Gli amministratori sono le email elencate in `ADMIN_EMAILS` (variabile d'ambiente, su Vercel e in `.env.local`): al primo login dopo la configurazione l'account viene promosso sul database. Gli admin pagano i messaggi come tutti gli altri utenti e vedono il pulsante **Admin** nella sidebar accanto a **Impostazioni**.
 
 ## Hermes Agent e profilo legale dietro HTTPS
 

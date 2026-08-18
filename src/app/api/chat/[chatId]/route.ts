@@ -52,7 +52,9 @@ export async function POST(request: Request, { params }: { params: Promise<{ cha
   // Crediti a token: il costo esatto si conosce solo a generazione conclusa
   // (token di input + output per milione). Tutti pagano, admin compresi.
   // Qui si verifica solo che ci sia credito residuo; l'addebito, con accumulo
-  // dei millesimi sotto il centesimo, avviene in coda allo streaming.
+  // dei millesimi sotto il centesimo, avviene in coda allo streaming. La fascia
+  // (peak/off-peak) è fissata all'arrivo della richiesta: addebito e costo
+  // mostrato usano gli stessi prezzi anche se lo stream cambia fascia.
   const pricing = await getTokenPricing();
   const user = await db.query.users.findFirst({
     where: eq(users.id, session.user.id),

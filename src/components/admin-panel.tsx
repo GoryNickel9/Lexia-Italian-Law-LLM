@@ -12,10 +12,15 @@ type AdminUser = {
   createdAt: string;
 };
 
-type AdminSettings = {
-  registrationsOpen: boolean;
+type PricePair = {
   inputPricePerMillionMc: number;
   outputPricePerMillionMc: number;
+};
+
+type AdminSettings = {
+  registrationsOpen: boolean;
+  offPeak: PricePair;
+  peak: PricePair;
 };
 
 const inputClass =
@@ -39,9 +44,9 @@ function eurosToMillicents(value: string): number | null {
   return Math.round(parseFloat(normalized) * 100_000);
 }
 
-/** Millesimi di centesimo -> stringa in euro per il campo di input ("0,014"). */
+/** Millesimi di centesimo -> stringa in euro per il campo di input ("0,014", "2"). */
 function millicentsToEuroInput(millicents: number): string {
-  return (millicents / 100_000).toFixed(3).replace(/0{1,2}$/, "").replace(/\.$/, "").replace(".", ",");
+  return (millicents / 100_000).toFixed(3).replace(/0+$/, "").replace(/\.$/, "").replace(".", ",");
 }
 
 function formatDate(iso: string) {
@@ -60,8 +65,18 @@ export function AdminPanel({
 }) {
   const [users, setUsers] = useState(initialUsers);
   const [settings, setSettings] = useState(initialSettings);
-  const [inputPriceEuro, setInputPriceEuro] = useState(millicentsToEuroInput(initialSettings.inputPricePerMillionMc));
-  const [outputPriceEuro, setOutputPriceEuro] = useState(millicentsToEuroInput(initialSettings.outputPricePerMillionMc));
+  const [inputOffPeakEuro, setInputOffPeakEuro] = useState(
+    millicentsToEuroInput(initialSettings.offPeak.inputPricePerMillionMc),
+  );
+  const [outputOffPeakEuro, setOutputOffPeakEuro] = useState(
+    millicentsToEuroInput(initialSettings.offPeak.outputPricePerMillionMc),
+  );
+  const [inputPeakEuro, setInputPeakEuro] = useState(
+    millicentsToEuroInput(initialSettings.peak.inputPricePerMillionMc),
+  );
+  const [outputPeakEuro, setOutputPeakEuro] = useState(
+    millicentsToEuroInput(initialSettings.peak.outputPricePerMillionMc),
+  );
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [busyUserId, setBusyUserId] = useState<string | null>(null);
@@ -78,11 +93,13 @@ export function AdminPanel({
         throw new Error("Caricamento dati non riuscito");
       }
       const usersData = await usersRes.json();
-      const settingsData = await settingsRes.json();
+      const settingsData: AdminSettings = await settingsRes.json();
       setUsers(usersData.users ?? []);
       setSettings(settingsData);
-      setInputPriceEuro(millicentsToEuroInput(settingsData.inputPricePerMillionMc));
-      setOutputPriceEuro(millicentsToEuroInput(settingsData.outputPricePerMillionMc));
+      setInputOffPeakEuro(millicentsToEuroInput(settingsData.offPeak.inputPricePerMillionMc));
+      setOutputOffPeakEuro(millicentsToEuroInput(settingsData.offPeak.outputPricePerMillionMc));
+      setInputPeakEuro(millicentsToEuroInput(settingsData.peak.inputPricePerMillionMc));
+      setOutputPeakEuro(millicentsToEuroInput(settingsData.peak.outputPricePerMillionMc));
     } catch (e) {
       setError(e instanceof Error ? e.message : "Errore di rete");
     }
@@ -147,9 +164,15 @@ export function AdminPanel({
   }
 
   async function handleSavePrices() {
-    const inputMc = eurosToMillicents(inputPriceEuro);
-    const outputMc = eurosToMillicents(outputPriceEuro);
-    if (inputMc === null || outputMc === null) {
+    const offPeak = {
+      input: eurosToMillicents(inputOffPeakEuro),
+      output: eurosToMillicents(outputOffPeakEuro),
+    };
+    const peak = {
+      input: eurosToMillicents(inputPeakEuro),
+      output: eurosToMillicents(outputPeakEuro),
+    };
+    if (offPeak.input === null || offPeak.output === null || peak.input === null || peak.output === null) {
       setError("Prezzi non validi: usa l'euro con al massimo 3 decimali (es. 0,014 oppure 1,32)");
       return;
     }
@@ -159,8 +182,14 @@ export function AdminPanel({
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          inputPricePerMillionMc: inputMc,
-          outputPricePerMillionMc: outputMc,
+          offPeak: {
+            inputPricePerMillionMc: offPeak.input,
+            outputPricePerMillionMc: offPeak.output,
+          },
+          peak: {
+            inputPricePerMillionMc: peak.input,
+            outputPricePerMillionMc: peak.output,
+          },
         }),
       },
       "Prezzi per milione di token aggiornati.",
@@ -202,29 +231,53 @@ export function AdminPanel({
           <div className="flex flex-wrap items-end justify-between gap-3 border-t border-line pt-4">
             <div>
               <p className="text-sm font-medium">Costi API (per milione di token)</p>
-              <p className="text-xs text-muted">
+              <p className="max-w-lg text-xs text-muted">
                 Credito addebitato in base ai token effettivamente consumati da ogni
-                risposta, per tutti gli account. Attuali: input{" "}
-                {formatPricePerMillion(settings.inputPricePerMillionMc)}, output{" "}
-                {formatPricePerMillion(settings.outputPricePerMillionMc)}.
+                risposta, per tutti gli account. Ore di picco (peak): 01:00–04:00 e
+                06:00–10:00 UTC; tutte le altre ore usano i prezzi off-peak.
+                Attuali — off-peak: input{" "}
+                {formatPricePerMillion(settings.offPeak.inputPricePerMillionMc)}, output{" "}
+                {formatPricePerMillion(settings.offPeak.outputPricePerMillionMc)}; peak:
+                input {formatPricePerMillion(settings.peak.inputPricePerMillionMc)}, output{" "}
+                {formatPricePerMillion(settings.peak.outputPricePerMillionMc)}.
               </p>
             </div>
             <div className="flex flex-wrap items-end gap-4">
               <label className="flex flex-col gap-1 text-xs text-muted">
-                Input € / milione
+                Input off-peak € / milione
                 <input
-                  value={inputPriceEuro}
-                  onChange={(e) => setInputPriceEuro(e.target.value)}
+                  value={inputOffPeakEuro}
+                  onChange={(e) => setInputOffPeakEuro(e.target.value)}
                   inputMode="decimal"
                   placeholder="0,014"
                   className={`${inputClass} w-24`}
                 />
               </label>
               <label className="flex flex-col gap-1 text-xs text-muted">
-                Output € / milione
+                Output off-peak € / milione
                 <input
-                  value={outputPriceEuro}
-                  onChange={(e) => setOutputPriceEuro(e.target.value)}
+                  value={outputOffPeakEuro}
+                  onChange={(e) => setOutputOffPeakEuro(e.target.value)}
+                  inputMode="decimal"
+                  placeholder="1,32"
+                  className={`${inputClass} w-24`}
+                />
+              </label>
+              <label className="flex flex-col gap-1 text-xs text-muted">
+                Input peak € / milione
+                <input
+                  value={inputPeakEuro}
+                  onChange={(e) => setInputPeakEuro(e.target.value)}
+                  inputMode="decimal"
+                  placeholder="0,014"
+                  className={`${inputClass} w-24`}
+                />
+              </label>
+              <label className="flex flex-col gap-1 text-xs text-muted">
+                Output peak € / milione
+                <input
+                  value={outputPeakEuro}
+                  onChange={(e) => setOutputPeakEuro(e.target.value)}
                   inputMode="decimal"
                   placeholder="1,32"
                   className={`${inputClass} w-24`}

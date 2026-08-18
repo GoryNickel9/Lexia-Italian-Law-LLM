@@ -5,7 +5,7 @@ import { auth } from "@/lib/auth";
 import { isAdminUser } from "@/lib/admin";
 import { db } from "@/lib/db";
 import { users } from "@/lib/schema";
-import { SETTING_KEYS, getAllSettings, getTokenPricing } from "@/lib/settings";
+import { SETTING_KEYS, getAllSettings, getAllTokenPricing } from "@/lib/settings";
 import { AdminPanel } from "@/components/admin-panel";
 import { ThemeToggle } from "@/components/theme-toggle";
 
@@ -24,7 +24,7 @@ export default async function AdminPage() {
       orderBy: asc(users.createdAt),
     }),
     getAllSettings(),
-    getTokenPricing(),
+    getAllTokenPricing(),
   ]);
 
   return (
@@ -51,8 +51,8 @@ export default async function AdminPage() {
         initialUsers={userList.map((u) => ({ ...u, createdAt: u.createdAt.toISOString() }))}
         initialSettings={{
           registrationsOpen: settings[SETTING_KEYS.registrationsOpen] === "true",
-          inputPricePerMillionMc: pricing.inputPricePerMillionMc,
-          outputPricePerMillionMc: pricing.outputPricePerMillionMc,
+          offPeak: pricing.offPeak,
+          peak: pricing.peak,
         }}
       />
     </main>

@@ -7,18 +7,25 @@ import { settings } from "@/lib/schema";
 
 export const SETTING_KEYS = {
   registrationsOpen: "registrations_open",
-  // Tariffazione a token: prezzi in MILLESIMI DI CENTESIMO (mc) per milione di
-  // token. 1 mc = 1/1000 di centesimo = 1/100000 €, così sono possibili prezzi
-  // come €0,014 per milione (= 1400 mc).
+  // Tariffazione a token su due fasce orarie: prezzi in MILLESIMI DI CENTESIMO
+  // (mc) per milione di token. 1 mc = 1/1000 di centesimo = 1/100000 €, così
+  // sono possibili prezzi come €0,014 per milione (= 1400 mc). Le chiavi senza
+  // "peak" sono i prezzi off-peak, validi in tutte le ore fuori dalle finestre
+  // di picco (vedi PEAK_WINDOWS_UTC).
   inputPricePerMillionMc: "input_price_per_million_mc",
   outputPricePerMillionMc: "output_price_per_million_mc",
+  inputPricePeakPerMillionMc: "input_price_peak_per_million_mc",
+  outputPricePeakPerMillionMc: "output_price_peak_per_million_mc",
 } as const;
 
-// Valori usati quando la chiave non esiste ancora nel database
+// Valori usati quando la chiave non esiste ancora nel database. I prezzi peak
+// partono uguali agli off-peak: l'admin li differenzia dal pannello.
 const DEFAULTS: Record<string, string> = {
   [SETTING_KEYS.registrationsOpen]: "true",
-  [SETTING_KEYS.inputPricePerMillionMc]: "200000", // €2,000 / milione di token di input
-  [SETTING_KEYS.outputPricePerMillionMc]: "600000", // €6,000 / milione di token di output
+  [SETTING_KEYS.inputPricePerMillionMc]: "200000", // €2,000 / milione di token di input (off-peak)
+  [SETTING_KEYS.outputPricePerMillionMc]: "600000", // €6,000 / milione di token di output (off-peak)
+  [SETTING_KEYS.inputPricePeakPerMillionMc]: "200000",
+  [SETTING_KEYS.outputPricePeakPerMillionMc]: "600000",
 };
 
 async function readSetting(key: string): Promise<string> {
@@ -34,23 +41,64 @@ export async function getRegistrationsOpen(): Promise<boolean> {
   return (await readSetting(SETTING_KEYS.registrationsOpen)) === "true";
 }
 
-/** Prezzi attivi in millesimi di centesimo per milione di token (input e output). */
-export async function getTokenPricing(): Promise<{
+// Finestre peak in ore UTC, estremo destro escluso: [01:00, 04:00) e
+// [06:00, 10:00). Tutte le altre ore sono off-peak.
+const PEAK_WINDOWS_UTC: Array<[start: number, end: number]> = [
+  [1, 4],
+  [6, 10],
+];
+
+/** true se l'istante cade in una finestra di picco (confronto sulle ore UTC). */
+export function isPeakHour(at: Date): boolean {
+  const hour = at.getUTCHours();
+  return PEAK_WINDOWS_UTC.some(([start, end]) => hour >= start && hour < end);
+}
+
+export type TokenPricing = {
   inputPricePerMillionMc: number;
   outputPricePerMillionMc: number;
-}> {
-  const [inputRaw, outputRaw] = await Promise.all([
-    readSetting(SETTING_KEYS.inputPricePerMillionMc),
-    readSetting(SETTING_KEYS.outputPricePerMillionMc),
-  ]);
-  const input = Number.parseInt(inputRaw, 10);
-  const output = Number.parseInt(outputRaw, 10);
+};
+
+function parsePrice(raw: string, fallbackKey: string): number {
+  const parsed = Number.parseInt(raw, 10);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : defaultInt(fallbackKey);
+}
+
+/** Prezzi di entrambe le fasce (per la configurazione nel pannello admin). */
+export async function getAllTokenPricing(): Promise<{ offPeak: TokenPricing; peak: TokenPricing }> {
+  const all = await getAllSettings();
   return {
-    inputPricePerMillionMc:
-      Number.isFinite(input) && input >= 0 ? input : defaultInt(SETTING_KEYS.inputPricePerMillionMc),
-    outputPricePerMillionMc:
-      Number.isFinite(output) && output >= 0 ? output : defaultInt(SETTING_KEYS.outputPricePerMillionMc),
+    offPeak: {
+      inputPricePerMillionMc: parsePrice(
+        all[SETTING_KEYS.inputPricePerMillionMc],
+        SETTING_KEYS.inputPricePerMillionMc,
+      ),
+      outputPricePerMillionMc: parsePrice(
+        all[SETTING_KEYS.outputPricePerMillionMc],
+        SETTING_KEYS.outputPricePerMillionMc,
+      ),
+    },
+    peak: {
+      inputPricePerMillionMc: parsePrice(
+        all[SETTING_KEYS.inputPricePeakPerMillionMc],
+        SETTING_KEYS.inputPricePeakPerMillionMc,
+      ),
+      outputPricePerMillionMc: parsePrice(
+        all[SETTING_KEYS.outputPricePeakPerMillionMc],
+        SETTING_KEYS.outputPricePeakPerMillionMc,
+      ),
+    },
   };
+}
+
+/**
+ * Prezzi attivi in un dato istante (fascia peak o off-peak). La chat la chiama
+ * all'arrivo della richiesta, così addebito e costo mostrato sotto la risposta
+ * usano la stessa fascia anche se la generazione attraversa il cambio d'ora.
+ */
+export async function getTokenPricing(at: Date = new Date()): Promise<TokenPricing> {
+  const all = await getAllTokenPricing();
+  return isPeakHour(at) ? all.peak : all.offPeak;
 }
 
 /** Costo di una risposta in millesimi di centesimo (spesso una frazione di centesimo). */
