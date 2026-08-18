@@ -137,9 +137,10 @@ export async function POST(request: Request, { params }: { params: Promise<{ cha
           data: {
             inputTokens,
             outputTokens,
-            costCents: chargeable
-              ? computeCostCents(inputTokens, outputTokens, pricing)
-              : 0,
+            // Costo teorico della risposta; per gli admin "exempt" segnala
+            // l'esenzione (non viene addebitato)
+            costCents: computeCostCents(inputTokens, outputTokens, pricing),
+            exempt: !chargeable,
           },
         });
       } catch {
