@@ -51,8 +51,8 @@ export default async function AdminPage() {
         initialUsers={userList.map((u) => ({ ...u, createdAt: u.createdAt.toISOString() }))}
         initialSettings={{
           registrationsOpen: settings[SETTING_KEYS.registrationsOpen] === "true",
-          inputCostPerMillionCents: pricing.inputCostPerMillionCents,
-          outputCostPerMillionCents: pricing.outputCostPerMillionCents,
+          inputPricePerMillionMc: pricing.inputPricePerMillionMc,
+          outputPricePerMillionMc: pricing.outputPricePerMillionMc,
         }}
       />
     </main>

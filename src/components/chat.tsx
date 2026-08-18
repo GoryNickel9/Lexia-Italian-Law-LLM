@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport } from "ai";
 import ReactMarkdown from "react-markdown";
-import { formatEuroPrecise, formatTokens } from "@/lib/format";
+import { formatEuroFromMillicents, formatTokens } from "@/lib/format";
 
 type InitialMessage = {
   id: string;
@@ -16,8 +16,7 @@ type InitialMessage = {
 type TokenUsage = {
   inputTokens: number;
   outputTokens: number;
-  costCents?: number;
-  exempt?: boolean;
+  costMillicents?: number;
 };
 
 // Messaggio scritto nella schermata "nuova chat": viene inviato
@@ -150,10 +149,8 @@ export function Chat({
                       <p className="mt-1.5 border-t border-line pt-1.5 text-[11px] text-muted">
                         Input: {formatTokens(usage.inputTokens)} token · Output:{" "}
                         {formatTokens(usage.outputTokens)} token
-                        {usage.exempt
-                          ? " · Esente (admin)"
-                          : usage.costCents !== undefined &&
-                            ` · Costo: ${formatEuroPrecise(usage.costCents)}`}
+                        {usage.costMillicents !== undefined &&
+                          ` · Costo: ${formatEuroFromMillicents(usage.costMillicents)}`}
                       </p>
                     )}
                   </div>

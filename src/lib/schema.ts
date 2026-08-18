@@ -15,6 +15,9 @@ export const users = sqliteTable("users", {
   role: text("role", { enum: ["user", "admin"] }).notNull().default("user"),
   // Credito dell'utente in centesimi di euro (500 = 5,00 €)
   balanceCents: integer("balance_cents").notNull().default(sql`500`),
+  // Resto di addebito sotto il centesimo, in millesimi di centesimo: con la
+  // tariffazione a token il costo di una risposta è spesso frazione di centesimo
+  unbilledMillicents: integer("unbilled_millicents").notNull().default(sql`0`),
   // Tema preferito ("dark" | "light" | null = segue il sistema), salvato nel db
   // così la preferenza vale su tutti i dispositivi
   theme: text("theme", { enum: ["dark", "light"] }),

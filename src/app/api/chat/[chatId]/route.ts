@@ -4,7 +4,7 @@ import { createUIMessageStream, createUIMessageStreamResponse, streamText, toUIM
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { chats, messages, users } from "@/lib/schema";
-import { computeCostCents, getTokenPricing } from "@/lib/settings";
+import { computeCostMillicents, getTokenPricing } from "@/lib/settings";
 import { hermesModel, SYSTEM_PROMPT } from "@/lib/hermes";
 import { formatLegalContext, legalUnavailableResponse, searchLocalCorpus } from "@/lib/legal";
 
@@ -50,16 +50,15 @@ export async function POST(request: Request, { params }: { params: Promise<{ cha
   }
 
   // Crediti a token: il costo esatto si conosce solo a generazione conclusa
-  // (token di input + output per milione). Qui si verifica solo che l'utente
-  // abbia credito residuo; l'addebito avviene in coda allo streaming. Gli admin
-  // non pagano.
+  // (token di input + output per milione). Tutti pagano, admin compresi.
+  // Qui si verifica solo che ci sia credito residuo; l'addebito, con accumulo
+  // dei millesimi sotto il centesimo, avviene in coda allo streaming.
   const pricing = await getTokenPricing();
   const user = await db.query.users.findFirst({
     where: eq(users.id, session.user.id),
-    columns: { role: true, balanceCents: true },
+    columns: { balanceCents: true },
   });
-  const chargeable = user?.role !== "admin";
-  if (chargeable && (user?.balanceCents ?? 0) <= 0) {
+  if ((user?.balanceCents ?? 0) <= 0) {
     return NextResponse.json(
       { error: "Crediti insufficienti: contatta l'amministratore per ricaricare il tuo credito" },
       { status: 402 },
@@ -99,7 +98,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ cha
       try {
         const inputTokens = usage?.inputTokens ?? 0;
         const outputTokens = usage?.outputTokens ?? 0;
-        const costCents = computeCostCents(inputTokens, outputTokens, pricing);
+        const costMillicents = computeCostMillicents(inputTokens, outputTokens, pricing);
 
         await db.insert(messages).values({
           chatId,
@@ -110,11 +109,19 @@ export async function POST(request: Request, { params }: { params: Promise<{ cha
         });
         await db.update(chats).set({ updatedAt: new Date() }).where(eq(chats.id, chatId));
 
-        // Addebito a generazione conclusa: non può mai andare sotto zero
-        if (chargeable && costCents > 0) {
+        // Addebito a generazione conclusa. Il costo è spesso frazione di
+        // centesimo: i millesimi vengono accumulati in unbilled_millicents e
+        // solo i centesimi interi maturati vengono scalati dal saldo (mai sotto
+        // zero). Un'unica UPDATE atomica; i CAST garantiscono aritmetica intera
+        // (i parametri bind arrivano come REAL e senza cast il saldo diventerebbe
+        // un numero decimale).
+        if (costMillicents > 0) {
           await db
             .update(users)
-            .set({ balanceCents: sql`max(${users.balanceCents} - ${costCents}, 0)` })
+            .set({
+              balanceCents: sql`max(${users.balanceCents} - CAST((${users.unbilledMillicents} + ${costMillicents}) / 1000 AS INTEGER), 0)`,
+              unbilledMillicents: sql`CAST((${users.unbilledMillicents} + ${costMillicents}) % 1000 AS INTEGER)`,
+            })
             .where(eq(users.id, session.user.id));
         }
       } catch (error) {
@@ -137,10 +144,9 @@ export async function POST(request: Request, { params }: { params: Promise<{ cha
           data: {
             inputTokens,
             outputTokens,
-            // Costo teorico della risposta; per gli admin "exempt" segnala
-            // l'esenzione (non viene addebitato)
-            costCents: computeCostCents(inputTokens, outputTokens, pricing),
-            exempt: !chargeable,
+            // Costo della risposta in millesimi di centesimo (anche admin:
+            // l'esenzione è stata rimossa, tutti pagano)
+            costMillicents: computeCostMillicents(inputTokens, outputTokens, pricing),
           },
         });
       } catch {

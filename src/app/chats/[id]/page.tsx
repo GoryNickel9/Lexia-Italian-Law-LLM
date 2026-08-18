@@ -25,7 +25,7 @@ export default async function ChatPage({ params }: { params: Promise<{ id: strin
     }),
     db.query.users.findFirst({
       where: eq(users.id, session.user.id),
-      columns: { role: true, balanceCents: true },
+      columns: { balanceCents: true },
     }),
   ]);
 
@@ -42,8 +42,7 @@ export default async function ChatPage({ params }: { params: Promise<{ id: strin
       .map((m) => [m.id, { inputTokens: m.inputTokens ?? 0, outputTokens: m.outputTokens ?? 0 }]),
   );
 
-  const isAdmin = userRow?.role === "admin";
-  const creditsExhausted = !isAdmin && (userRow?.balanceCents ?? 0) <= 0;
+  const creditsExhausted = (userRow?.balanceCents ?? 0) <= 0;
 
   return (
     <Chat

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useState } from "react";
-import { formatEuro } from "@/lib/format";
+import { formatEuro, formatPricePerMillion } from "@/lib/format";
 
 type AdminUser = {
   id: string;
@@ -14,8 +14,8 @@ type AdminUser = {
 
 type AdminSettings = {
   registrationsOpen: boolean;
-  inputCostPerMillionCents: number;
-  outputCostPerMillionCents: number;
+  inputPricePerMillionMc: number;
+  outputPricePerMillionMc: number;
 };
 
 const inputClass =
@@ -25,11 +25,23 @@ const primaryButton =
 const secondaryButton =
   "rounded-lg border border-line px-3 py-1.5 text-sm text-foreground/80 transition-colors hover:bg-foreground/5 disabled:cursor-not-allowed disabled:opacity-60";
 
-/** Converte un importo in euro ("5", "5,50", "5.50") in centesimi. */
+/** Converte un importo in euro ("5", "5,50", "0,014") in centesimi (2 decimali). */
 function eurosToCents(value: string): number | null {
   const normalized = value.trim().replace(",", ".");
   if (!/^\d+(\.\d{1,2})?$/.test(normalized)) return null;
   return Math.round(parseFloat(normalized) * 100);
+}
+
+/** Converte un prezzo in euro per milione di token in millesimi di centesimo (fino a 3 decimali). */
+function eurosToMillicents(value: string): number | null {
+  const normalized = value.trim().replace(",", ".");
+  if (!/^\d+(\.\d{1,3})?$/.test(normalized)) return null;
+  return Math.round(parseFloat(normalized) * 100_000);
+}
+
+/** Millesimi di centesimo -> stringa in euro per il campo di input ("0,014"). */
+function millicentsToEuroInput(millicents: number): string {
+  return (millicents / 100_000).toFixed(3).replace(/0{1,2}$/, "").replace(/\.$/, "").replace(".", ",");
 }
 
 function formatDate(iso: string) {
@@ -48,8 +60,8 @@ export function AdminPanel({
 }) {
   const [users, setUsers] = useState(initialUsers);
   const [settings, setSettings] = useState(initialSettings);
-  const [inputCostEuro, setInputCostEuro] = useState((initialSettings.inputCostPerMillionCents / 100).toFixed(2));
-  const [outputCostEuro, setOutputCostEuro] = useState((initialSettings.outputCostPerMillionCents / 100).toFixed(2));
+  const [inputPriceEuro, setInputPriceEuro] = useState(millicentsToEuroInput(initialSettings.inputPricePerMillionMc));
+  const [outputPriceEuro, setOutputPriceEuro] = useState(millicentsToEuroInput(initialSettings.outputPricePerMillionMc));
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [busyUserId, setBusyUserId] = useState<string | null>(null);
@@ -69,8 +81,8 @@ export function AdminPanel({
       const settingsData = await settingsRes.json();
       setUsers(usersData.users ?? []);
       setSettings(settingsData);
-      setInputCostEuro((settingsData.inputCostPerMillionCents / 100).toFixed(2));
-      setOutputCostEuro((settingsData.outputCostPerMillionCents / 100).toFixed(2));
+      setInputPriceEuro(millicentsToEuroInput(settingsData.inputPricePerMillionMc));
+      setOutputPriceEuro(millicentsToEuroInput(settingsData.outputPricePerMillionMc));
     } catch (e) {
       setError(e instanceof Error ? e.message : "Errore di rete");
     }
@@ -135,10 +147,10 @@ export function AdminPanel({
   }
 
   async function handleSavePrices() {
-    const inputCents = eurosToCents(inputCostEuro);
-    const outputCents = eurosToCents(outputCostEuro);
-    if (inputCents === null || outputCents === null) {
-      setError("Inserisci prezzi validi in euro per milione di token (es. 2,00)");
+    const inputMc = eurosToMillicents(inputPriceEuro);
+    const outputMc = eurosToMillicents(outputPriceEuro);
+    if (inputMc === null || outputMc === null) {
+      setError("Prezzi non validi: usa l'euro con al massimo 3 decimali (es. 0,014 oppure 1,32)");
       return;
     }
     await apiCall(
@@ -147,8 +159,8 @@ export function AdminPanel({
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          inputCostPerMillionCents: inputCents,
-          outputCostPerMillionCents: outputCents,
+          inputPricePerMillionMc: inputMc,
+          outputPricePerMillionMc: outputMc,
         }),
       },
       "Prezzi per milione di token aggiornati.",
@@ -192,28 +204,29 @@ export function AdminPanel({
               <p className="text-sm font-medium">Costi API (per milione di token)</p>
               <p className="text-xs text-muted">
                 Credito addebitato in base ai token effettivamente consumati da ogni
-                risposta. Attuali: input {formatEuro(settings.inputCostPerMillionCents)} / M,
-                output {formatEuro(settings.outputCostPerMillionCents)} / M.
+                risposta, per tutti gli account. Attuali: input{" "}
+                {formatPricePerMillion(settings.inputPricePerMillionMc)}, output{" "}
+                {formatPricePerMillion(settings.outputPricePerMillionMc)}.
               </p>
             </div>
             <div className="flex flex-wrap items-end gap-4">
               <label className="flex flex-col gap-1 text-xs text-muted">
                 Input € / milione
                 <input
-                  value={inputCostEuro}
-                  onChange={(e) => setInputCostEuro(e.target.value)}
+                  value={inputPriceEuro}
+                  onChange={(e) => setInputPriceEuro(e.target.value)}
                   inputMode="decimal"
-                  placeholder="2,00"
+                  placeholder="0,014"
                   className={`${inputClass} w-24`}
                 />
               </label>
               <label className="flex flex-col gap-1 text-xs text-muted">
                 Output € / milione
                 <input
-                  value={outputCostEuro}
-                  onChange={(e) => setOutputCostEuro(e.target.value)}
+                  value={outputPriceEuro}
+                  onChange={(e) => setOutputPriceEuro(e.target.value)}
                   inputMode="decimal"
-                  placeholder="6,00"
+                  placeholder="1,32"
                   className={`${inputClass} w-24`}
                 />
               </label>

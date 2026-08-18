@@ -17,11 +17,12 @@ export async function GET() {
   });
 }
 
-// I prezzi sono in centesimi di euro per milione di token (interi, 0..1.000.000)
-const MAX_PRICE_CENTS = 1_000_000;
+// I prezzi sono in millesimi di centesimo per milione di token (interi),
+// così sono ammessi valori come €0,014 per milione (= 1400). Limite: €1.000/M.
+const MAX_PRICE_MC = 100_000_000;
 
 function validPrice(value: unknown): value is number {
-  return typeof value === "number" && Number.isInteger(value) && value >= 0 && value <= MAX_PRICE_CENTS;
+  return typeof value === "number" && Number.isInteger(value) && value >= 0 && value <= MAX_PRICE_MC;
 }
 
 export async function PATCH(request: Request) {
@@ -37,24 +38,24 @@ export async function PATCH(request: Request) {
   }
 
   const invalidPrices: string[] = [];
-  if (body?.inputCostPerMillionCents !== undefined) {
-    if (validPrice(body.inputCostPerMillionCents)) {
-      await setSetting(SETTING_KEYS.inputCostPerMillionCents, String(body.inputCostPerMillionCents));
+  if (body?.inputPricePerMillionMc !== undefined) {
+    if (validPrice(body.inputPricePerMillionMc)) {
+      await setSetting(SETTING_KEYS.inputPricePerMillionMc, String(body.inputPricePerMillionMc));
     } else {
-      invalidPrices.push("inputCostPerMillionCents");
+      invalidPrices.push("inputPricePerMillionMc");
     }
   }
-  if (body?.outputCostPerMillionCents !== undefined) {
-    if (validPrice(body.outputCostPerMillionCents)) {
-      await setSetting(SETTING_KEYS.outputCostPerMillionCents, String(body.outputCostPerMillionCents));
+  if (body?.outputPricePerMillionMc !== undefined) {
+    if (validPrice(body.outputPricePerMillionMc)) {
+      await setSetting(SETTING_KEYS.outputPricePerMillionMc, String(body.outputPricePerMillionMc));
     } else {
-      invalidPrices.push("outputCostPerMillionCents");
+      invalidPrices.push("outputPricePerMillionMc");
     }
   }
   if (invalidPrices.length > 0) {
     return NextResponse.json(
       {
-        error: `${invalidPrices.join(" e ")} devono essere interi tra 0 e ${MAX_PRICE_CENTS} (centesimi di euro per milione di token)`,
+        error: `${invalidPrices.join(" e ")} devono essere interi tra 0 e ${MAX_PRICE_MC} (millesimi di centesimo per milione di token)`,
       },
       { status: 400 },
     );

@@ -19,10 +19,26 @@ export function formatEuro(cents: number): string {
   return `${sign}${groupThousands(int)},${dec}\u00A0€`;
 }
 
-/** Come formatEuro ma con fino a 4 decimali, per i costi per-messaggio a token. */
+/** Come formatEuro ma con fino a 4 decimali. */
 export function formatEuroPrecise(cents: number): string {
   const sign = cents < 0 ? "-" : "";
   const fixed = (Math.abs(cents) / 100).toFixed(4).replace(/0{1,2}$/, "");
   const [int, dec] = fixed.split(".");
   return `${sign}${groupThousands(int)},${dec}\u00A0€`;
+}
+
+/** Millesimi di centesimo -> "0,00158 €" (fino a 5 decimali, zeri finali tagliati). */
+export function formatEuroFromMillicents(millicents: number): string {
+  const sign = millicents < 0 ? "-" : "";
+  const fixed = (Math.abs(millicents) / 100_000).toFixed(5).replace(/0+$/, "").replace(/\.$/, "");
+  if (!fixed.includes(",")) {
+    return `${sign}${groupThousands(fixed)},00\u00A0€`;
+  }
+  const [int, dec] = fixed.split(".");
+  return `${sign}${groupThousands(int)},${dec}\u00A0€`;
+}
+
+/** Prezzo per milione di token (millesimi di cent) -> "0,014 € / milione". */
+export function formatPricePerMillion(millicents: number): string {
+  return `${formatEuroFromMillicents(millicents)} / milione`;
 }
