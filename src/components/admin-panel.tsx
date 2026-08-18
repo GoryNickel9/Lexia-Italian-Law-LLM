@@ -2,6 +2,7 @@
 
 import { useCallback, useState } from "react";
 import { formatEuro, formatPricePerMillion } from "@/lib/format";
+import { useIsPeakNow } from "@/components/peak-badge";
 
 type AdminUser = {
   id: string;
@@ -81,6 +82,9 @@ export function AdminPanel({
   const [notice, setNotice] = useState<string | null>(null);
   const [busyUserId, setBusyUserId] = useState<string | null>(null);
   const [amounts, setAmounts] = useState<Record<string, string>>({});
+  // Fascia tariffaria di questo momento (peak/off-peak), aggiornata da sola
+  const peakNow = useIsPeakNow();
+  const activePricing = peakNow === false ? settings.offPeak : settings.peak;
 
   // Ricarica i dati dopo una modifica (mai al mount: i dati iniziali arrivano dal server)
   const reload = useCallback(async () => {
@@ -231,7 +235,24 @@ export function AdminPanel({
           <div className="flex flex-wrap items-end justify-between gap-3 border-t border-line pt-4">
             <div>
               <p className="text-sm font-medium">Costi API (per milione di token)</p>
-              <p className="max-w-lg text-xs text-muted">
+              {peakNow !== null && (
+                <p className="mt-1 text-xs text-muted">
+                  In questo momento:{" "}
+                  <span
+                    className={
+                      peakNow
+                        ? "rounded-full bg-amber-500/10 px-2 py-0.5 font-medium text-amber-700 dark:text-amber-400"
+                        : "rounded-full bg-green-500/10 px-2 py-0.5 font-medium text-green-700 dark:text-green-400"
+                    }
+                  >
+                    {peakNow ? "fascia peak" : "fascia off-peak"}
+                  </span>{" "}
+                  — i nuovi messaggi sono tariffati a input{" "}
+                  {formatPricePerMillion(activePricing.inputPricePerMillionMc)}, output{" "}
+                  {formatPricePerMillion(activePricing.outputPricePerMillionMc)}.
+                </p>
+              )}
+              <p className="mt-1 max-w-lg text-xs text-muted">
                 Credito addebitato in base ai token effettivamente consumati da ogni
                 risposta, per tutti gli account. Ore di picco (peak): 01:00–04:00 e
                 06:00–10:00 UTC; tutte le altre ore usano i prezzi off-peak.

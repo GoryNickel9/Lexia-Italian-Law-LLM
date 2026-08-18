@@ -3,7 +3,8 @@ import { and, asc, eq } from "drizzle-orm";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { chats, messages, users } from "@/lib/schema";
-import { computeCostMillicents, getAllTokenPricing, isPeakHour } from "@/lib/settings";
+import { computeCostMillicents, getAllTokenPricing } from "@/lib/settings";
+import { isPeakHour } from "@/lib/peak";
 import { Chat } from "@/components/chat";
 
 export const dynamic = "force-dynamic";

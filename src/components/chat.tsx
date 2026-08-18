@@ -6,6 +6,7 @@ import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport } from "ai";
 import ReactMarkdown from "react-markdown";
 import { formatEuroFromMillicents, formatTokens } from "@/lib/format";
+import { PeakBadge } from "@/components/peak-badge";
 
 type InitialMessage = {
   id: string;
@@ -112,8 +113,9 @@ export function Chat({
 
   return (
     <main className="mx-auto flex min-h-0 w-full max-w-3xl flex-1 flex-col px-4">
-      <header className="border-b border-line py-3">
+      <header className="flex items-center justify-between gap-3 border-b border-line py-3">
         <h1 className="truncate text-sm font-medium">{chatTitle}</h1>
+        <PeakBadge />
       </header>
 
       <div className="min-h-0 flex-1 overflow-y-auto py-6">

@@ -1,6 +1,7 @@
 import { eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { settings } from "@/lib/schema";
+import { isPeakHour } from "@/lib/peak";
 
 // Impostazioni globali del sito, salvate nella tabella `settings` (key/value).
 // L'admin le modifica dal pannello di amministrazione.
@@ -11,7 +12,7 @@ export const SETTING_KEYS = {
   // (mc) per milione di token. 1 mc = 1/1000 di centesimo = 1/100000 €, così
   // sono possibili prezzi come €0,014 per milione (= 1400 mc). Le chiavi senza
   // "peak" sono i prezzi off-peak, validi in tutte le ore fuori dalle finestre
-  // di picco (vedi PEAK_WINDOWS_UTC).
+  // di picco (vedi src/lib/peak.ts).
   inputPricePerMillionMc: "input_price_per_million_mc",
   outputPricePerMillionMc: "output_price_per_million_mc",
   inputPricePeakPerMillionMc: "input_price_peak_per_million_mc",
@@ -39,19 +40,6 @@ function defaultInt(key: string): number {
 
 export async function getRegistrationsOpen(): Promise<boolean> {
   return (await readSetting(SETTING_KEYS.registrationsOpen)) === "true";
-}
-
-// Finestre peak in ore UTC, estremo destro escluso: [01:00, 04:00) e
-// [06:00, 10:00). Tutte le altre ore sono off-peak.
-const PEAK_WINDOWS_UTC: Array<[start: number, end: number]> = [
-  [1, 4],
-  [6, 10],
-];
-
-/** true se l'istante cade in una finestra di picco (confronto sulle ore UTC). */
-export function isPeakHour(at: Date): boolean {
-  const hour = at.getUTCHours();
-  return PEAK_WINDOWS_UTC.some(([start, end]) => hour >= start && hour < end);
 }
 
 export type TokenPricing = {
