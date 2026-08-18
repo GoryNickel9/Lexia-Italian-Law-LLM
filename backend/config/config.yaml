@@ -14,6 +14,8 @@ normattiva:
     - "Testi Unici"
     - "DPCM"
     - "DL e leggi di conversione"
+    - "DPR"
+    - "Regi decreti"
 
 sync:
   interval_days: 7

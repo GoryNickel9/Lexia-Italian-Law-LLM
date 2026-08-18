@@ -17,6 +17,7 @@ import os, sys, json, glob, shutil, subprocess, datetime, tempfile, logging, re,
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import psycopg2
 import ingest
+from akn_parser import strip_trailing_padding
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
 log = logging.getLogger('hermes-legal-sync')
@@ -116,7 +117,30 @@ def download_collection(collection, version='V'):
     outdir = os.path.join(CACHE, f'{collection}_{version}_x')
     shutil.rmtree(outdir, ignore_errors=True)
     shutil.unpack_archive(zip_path, outdir, 'zip')
+    _compact_padded_xml(outdir)
     return outdir
+
+def _compact_padded_xml(outdir):
+    """I file della collezione 'Regi decreti' arrivano con padding a 1 MiB
+    (XML + zeri fino a 1.048.576 byte): l'estrazione occupa ~90 GB invece di
+    ~1 GB. Risparazza ogni XML troncando il contenuto dopo la chiusura della
+    root element (stesso normalize di akn_parser.strip_trailing_padding).
+    In-place, best-effort; non tocca i file gia' puliti."""
+    import glob as _glob
+    padded = 0
+    for xml in _glob.glob(os.path.join(outdir, '**', '*.xml'), recursive=True):
+        try:
+            with open(xml, 'rb') as fh:
+                raw = fh.read()
+            m = re.search(rb'</(?:\w+:)?akomaNtoso\s*>', raw)
+            if m and m.end() < len(raw):
+                with open(xml, 'wb') as fh:
+                    fh.write(raw[:m.end()])
+                padded += 1
+        except OSError:
+            continue
+    if padded:
+        log.info("compattati %d file XML con padding (risparmio spazio disco)", padded)
 
 # ---------------------------------------------------------------------------
 # main
@@ -287,7 +311,7 @@ def main():
             col_skipped = 0; col_changed = 0; col_articles = 0
             for xml in sorted(xmls):
                 try:
-                    h = ingest.content_hash(open(xml, 'rb').read())
+                    h = ingest.content_hash(strip_trailing_padding(open(xml, 'rb').read()))
                 except OSError:
                     h = None
                 n = 0
@@ -296,7 +320,15 @@ def main():
                     col_skipped += 1
                     report['skipped'] += 1
                 else:
-                    _a_id, n = ingest.ingest(xml)  # commit per atto; resume-safe via hash
+                    try:
+                        _a_id, n = ingest.ingest(xml)  # commit per atto; resume-safe via hash
+                    except Exception as e:
+                        # File malformati (es. AKN troncati dal CDN Normattiva):
+                        # logga, conta, NON bloccare il run (i validi proseguono).
+                        log.error("SKIP file non parsabile: %s — %s", os.path.basename(xml), str(e)[:120])
+                        report['errors'].append(str(e)[:200])
+                        n = 0
+                        _a_id = None
                     if n > 0:
                         col_changed += 1
                         col_articles += n

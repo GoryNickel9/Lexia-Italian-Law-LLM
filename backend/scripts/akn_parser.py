@@ -104,6 +104,18 @@ def _maybe_decode(data):
         return s.encode('utf-8')
     return data.encode('utf-8')
 
+def strip_trailing_padding(data):
+    """Alcuni AKN della collezione 'Regi decreti' arrivano con padding a 1 MiB:
+    l'XML e' completo ma seguito da zeri binari fino a 1.048.576 byte (limite
+    CDN Normattiva). lxml li rifiuta con 'Extra content at the end of the
+    document'. Tronca tutto dopo la chiusura della root element."""
+    import re as _re
+    if isinstance(data, bytes):
+        m = _re.search(rb'</(?:\w+:)?akomaNtoso\s*>', data)
+        return data[:m.end()] if m else data
+    m = _re.search(r'</(?:\w+:)?akomaNtoso\s*>', data)
+    return data[:m.end()] if m else data
+
 def merge_text(el):
     t = htmlmod.unescape(''.join(el.itertext()))
     t = re.sub(r'\(\s*(.*?)\s*\)', r'\1', t)      # ((...)) -> testo, once (su singola)
@@ -213,7 +225,7 @@ def parse_flat_paragraphs(root, meta):
 
 def parse_akn(xml_path):
     raw = open(xml_path, 'rb').read()
-    content = _maybe_decode(raw)
+    content = strip_trailing_padding(_maybe_decode(raw))
     tree = etree.fromstring(content)
     root = tree
     meta = extract_act_meta(root)

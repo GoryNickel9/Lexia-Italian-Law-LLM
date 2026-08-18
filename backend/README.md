@@ -89,6 +89,24 @@ Scaricati in `/opt/hermes-legal/models/` sulla VPS:
 
 ## Changelog
 
+### 2026-08-18 — collezioni DPR + Regi decreti (corpus quasi completo)
+- **DPR**: 47.706 atti / 193.878 articoli-chunk ingeriti, 0 errori, SUCCESS.
+- **Regi decreti**: 90.909 atti / 217.284 articoli-chunk ingeriti, SUCCESS;
+  72 file su 90.983 (0,08%) scartati perche' troncati all'inizio dal CDN
+  (vedi sotto). DB totale: **148.905 atti / 501.674 articoli / 501.674 chunk**.
+- **FIX padding 1 MiB (akn_parser)**: i file RD arrivano riempiti di zeri fino
+  a 1.048.576 byte (il 99% del file e' padding). `strip_trailing_padding()`
+  tronca alla chiusura di `</akomaNtoso>`; senza questo fallivano 90.777 file.
+- **FIX compattazione disco (sync.py)**: `_compact_padded_xml()` riscrive i
+  file senza padding dopo l'estrazione: 90 GB -> ~1 GB per i sync futuri.
+- **FIX tolleranza file malformati (sync.py)**: ingest per-file con try/except;
+  i file corrotti vengono loggati (SKIP) e contati negli errori, il run
+  prosegue invece di abortire (prima moriva al primo file rotto).
+- **Hash normalizzato**: content_hash calcolato sul contenuto senza padding,
+  cosi' l'hash-skip settimanale resta stabile tra download.
+- Cache spostata su disco (`/opt/hermes-legal/cache`, LEGAL_CACHE nel
+  wrapper cron): le collezioni grandi non stanno nel tmpfs da 3.9G.
+
 ### 2026-08-18 — collezione DL e leggi di conversione + retry download
 - Aggiunta la collezione **"DL e leggi di conversione"** al sync (config.yaml):
   **9.748 atti / 22.549 articoli-chunk** ingeriti, 0 errori, Status SUCCESS
