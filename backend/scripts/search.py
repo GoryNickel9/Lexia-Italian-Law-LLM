@@ -83,6 +83,9 @@ def rerank_enabled():
     return os.environ.get('LEGAL_RERANK_ENABLED', 'false').lower() == 'true'
 
 
+_ART_REF = re.compile(r"(?:art\.?|articolo)\s*([0-9]+[a-z]*(?:-[a-z0-9]+)*)", re.IGNORECASE)
+
+
 def _rrf_fusion(ranked_id_lists, k=None):
     """Reciprocal Rank Fusion: combina piu' ordinamenti di id in uno solo.
 
@@ -132,16 +135,35 @@ def semantic_search(query, jurisdiction=None, max_results=10, ref_date=None, rer
               AND (a.valid_from IS NULL OR a.valid_from <= %s)
               AND (a.valid_to IS NULL OR a.valid_to >= %s)
         """
-        params = [vec_lit, ref, ref]
+        base_params = [vec_lit, ref, ref]
         if jurisdiction:
             q += " AND act.jurisdiction = %s"
-            params.append(str(jurisdiction))
+            base_params.append(str(jurisdiction))
+        base_q = q
         q += " ORDER BY c.embedding <=> %s::vector"
-        params.append(vec_lit)
+        base_params_v = base_params + [vec_lit]
         q += " LIMIT %s"
-        params.append(candidates)
-        cur.execute(q, params)
+        cur.execute(q, base_params_v + [candidates])
         out = [dict(r) for r in cur.fetchall()]
+        # riferimenti espliciti ad articoli ("art. 577", "articolo 576"): i chunk
+        # con quel numero entrano SEMPRE nei candidati con distanza 0 (hit esatto),
+        # così una domanda numerica trova la norma anche se l'embedding non la
+        # avvicina. Il keyword boost discrimina poi tra atti diversi (es. c.p. vs DPR).
+        art_refs = _ART_REF.findall(query)
+        if art_refs:
+            cur.execute(
+                base_q + " AND a.article_number = ANY(%s) ORDER BY act.title LIMIT 15",
+                base_params + [art_refs])
+            exact = {r['id']: r for r in cur.fetchall()}
+            by_id = {r['id']: r for r in out}
+            for rid, row in exact.items():
+                if rid in by_id:
+                    # l'hit esatto era gia' tra i candidati: azzera la distanza
+                    # cosi' sale in cima invece di restare sepolto dal ranking
+                    by_id[rid]['distance'] = 0.0
+                else:
+                    row['distance'] = 0.0
+                    out.append(dict(row))
         if rerank and rerank_enabled():
             try:
                 import reranker
@@ -152,7 +174,7 @@ def semantic_search(query, jurisdiction=None, max_results=10, ref_date=None, rer
                 scores = reranker.score_pairs([(query, r['text'] or '') for r in out])
                 for r, s in zip(out, scores):
                     r['rerank_score'] = round(float(s), 4)
-                by_distance = sorted(out, key=lambda r: float(r.get('distance') or 1.0))
+                by_distance = sorted(out, key=lambda r: float(r.get('distance') if r.get('distance') is not None else 1.0))
                 by_rerank = sorted(out, key=lambda r: r['rerank_score'], reverse=True)
                 fused = _rrf_fusion([[r['id'] for r in by_distance],
                                      [r['id'] for r in by_rerank]])
@@ -168,7 +190,7 @@ def semantic_search(query, jurisdiction=None, max_results=10, ref_date=None, rer
         for r in out:
             txt = (r['text'] or '').lower()
             bonus = sum(1 for w in kw if w in txt)
-            r['distance'] = round(float(r.get('distance') or 1.0) - boost * bonus, 4)
+            r['distance'] = round(float(r.get('distance') if r.get('distance') is not None else 1.0) - boost * bonus, 4)
         out.sort(key=lambda r: r['distance'])
         return out[:max_results]
     finally:

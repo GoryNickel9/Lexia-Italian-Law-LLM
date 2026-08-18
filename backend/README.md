@@ -89,6 +89,16 @@ Scaricati in `/opt/hermes-legal/models/` sulla VPS:
 
 ## Changelog
 
+### 2026-08-18 — retrieval: match esatto per numero di articolo + elisioni
+- Query con riferimento numerico ("art. 577", "articolo 576"): i chunk con quel
+  numero entrano sempre nei candidati con priorità, anche se l'embedding non li
+  avvicina (es. "art. 624 furto" → art. 624 c.p. #1; "art 577 omicidio aggravato"
+  → art. 577 c.p. #1).
+- Normalizzazione delle elisioni italiane in `expand_query` (`l'ergastolo` →
+  `ergastolo`), che impedivano il match dei sinonimi.
+- Fix `or 1.0` nel keyword boost: la distanza 0.0 (hit esatto) non veniva più
+  considerata falsy e rispedita in fondo.
+
 ### 2026-08-18 — retrieval: espansione query + reranker opt-in
 - **Causa**: la domanda "Quali conseguenze se rubo" non recuperava l'art. 624 c.p.
   perché il testo dell'articolo non contiene "furto"/"rubare" e il bi-encoder

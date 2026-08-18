@@ -10,6 +10,8 @@ expand_query() arricchisce la query con sinonimi e termini giuridici correlati
 PRIMA dell'embedding e del keyword boost: i candidati giusti entrano nella
 finestra del cross-encoder, che poi fa il ranking finale.
 """
+import re
+
 
 EXPANSIONS = [
     ({"rubo", "rubare", "rubato", "rubi", "rubano", "furto", "furi", "ladro", "ladri", "ladruncolo"},
@@ -29,7 +31,9 @@ EXPANSIONS = [
     ({"multa", "sanzione", "sanzioni", "ammenda", "contravvenzione", "sanzionare"},
      "sanzione multa ammenda contravvenzione"),
     ({"reclusione", "carcere", "prigione", "pena", "pene", "condanna", "condannato", "ergastolo"},
-     "reclusione pena condanna sanzione penale"),
+     "reclusione pena condanna sanzione penale ergastolo circostanze aggravanti"),
+    ({"aggravante", "aggravanti", "aggravato", "aggravata", "circostanze"},
+     "circostanze aggravanti pena dell'ergastolo"),
     ({"testamento", "eredita", "eredita'", "erede", "eredi", "successione", "legato", "legatario"},
      "successione eredità testamento erede"),
     ({"separazione", "divorzio", "coniuge", "coniugi", "matrimonio", "matrimoniale"},
@@ -61,18 +65,29 @@ EXPANSIONS = [
 ]
 
 
+_ELISION = re.compile(r"^(?:l|un|all|dell|nell|sull|quest|quell|d|ch|c|gl|agl|dagl|degl|negl|sugl)'")
+
+
+def _norm_token(token):
+    """Rimuove l'elisione italiana (l', dell', un', ...) per il match sui sinonimi."""
+    return _ELISION.sub('', token.lower()) or token.lower()
+
+
 def expand_query(query):
     """Ritorna la query arricchita (originale + sinonimi correlati).
 
     Conserva la query originale in testa (il ranking finale resta ancorato
     all'intento dell'utente) e appende i termini di espansione deduplicati.
+    Le elisioni italiane (l'ergastolo, dell'omicidio) vengono normalizzate
+    prima del confronto con i gruppi di sinonimi.
     """
     if not query:
         return query
     tokens = query.lower().split()
+    norm = {_norm_token(t) for t in tokens}
     additions = []
     for group, expansion in EXPANSIONS:
-        if group & set(tokens):
+        if group & norm:
             for word in expansion.split():
                 if word not in tokens and word not in additions:
                     additions.append(word)
