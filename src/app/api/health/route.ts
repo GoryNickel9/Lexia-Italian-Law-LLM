@@ -30,12 +30,15 @@ async function checkHermes() {
   const base = process.env.HERMES_BASE_URL;
   if (!base) return { ok: false, errore: "HERMES_BASE_URL non configurata" };
   try {
-    const res = await fetch(new URL("models", base), {
-      headers: process.env.HERMES_API_KEY
-        ? { Authorization: `Bearer ${process.env.HERMES_API_KEY}` }
-        : undefined,
-      signal: AbortSignal.timeout(8000),
-    });
+    const res = await fetch(
+      new URL("models", `${base.replace(/\/$/, "")}/`),
+      {
+        headers: process.env.HERMES_API_KEY
+          ? { Authorization: `Bearer ${process.env.HERMES_API_KEY}` }
+          : undefined,
+        signal: AbortSignal.timeout(8000),
+      },
+    );
     return res.ok
       ? { ok: true }
       : { ok: false, errore: `HTTP ${res.status} da ${base}/models` };
