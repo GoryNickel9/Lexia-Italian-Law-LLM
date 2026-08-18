@@ -68,9 +68,31 @@ EXPANSIONS = [
 _ELISION = re.compile(r"^(?:l|un|all|dell|nell|sull|quest|quell|d|ch|c|gl|agl|dagl|degl|negl|sugl)'")
 
 
-def _norm_token(token):
+def norm_token(token):
     """Rimuove l'elisione italiana (l', dell', un', ...) per il match sui sinonimi."""
     return _ELISION.sub('', token.lower()) or token.lower()
+
+
+def normalize_tokens(query):
+    """Token normalizzati della query (minuscole, senza elisioni)."""
+    return [norm_token(t) for t in query.lower().split()]
+
+
+# Temi con articoli "di riferimento" da includere SEMPRE nei candidati:
+# il bi-encoder non collega la domanda al testo di questi articoli (struttura
+# a elenco di circostanze), quindi vengono iniettati con priorita' esatta.
+# L'LLM poi sceglie e cita quelli pertinenti.
+TEMA_ARTICOLI = {
+    ("omicidio", "omicidi", "uccidere", "uccido", "ammazzare", "ammazzo"): [
+        "575", "576", "577", "578", "579", "584", "589"],
+    ("furto", "rubare", "rubo", "ruba", "sottrazione", "impossessamento"): [
+        "624", "624-bis", "625", "626", "628"],
+    ("truffa", "truffe"): ["640", "640-bis"],
+    ("risarcimento", "risarcire", "risarcisce"): ["2043"],
+    ("danno", "danni"): ["2043", "2050"],
+    ("stalking", "persecutori"): ["612-bis"],
+    ("licenziamento", "licenziare", "licenziato"): ["2118", "2119"],
+}
 
 
 def expand_query(query):
@@ -84,7 +106,7 @@ def expand_query(query):
     if not query:
         return query
     tokens = query.lower().split()
-    norm = {_norm_token(t) for t in tokens}
+    norm = {norm_token(t) for t in tokens}
     additions = []
     for group, expansion in EXPANSIONS:
         if group & norm:

@@ -17,7 +17,7 @@ DB = {
     'port': int(os.environ.get('LEGAL_DB_PORT', 5432)),
     'dbname': os.environ.get('LEGAL_DB_NAME', 'hermes_legal'),
     'user': os.environ.get('LEGAL_DB_USER', 'hermes_legal_app'),
-    'password': os.environ.get('LEGAL_DB_PASSWORD', ''),  # dall'ambiente
+    'password': os.environ.get('LEGAL_DB_PASSWORD', '')  # richiesta dall'ambiente,
 }
 def connect(): return psycopg2.connect(**DB)
 
@@ -110,7 +110,7 @@ def semantic_search(query, jurisdiction=None, max_results=10, ref_date=None, rer
     vengono riordinati per punteggio di rilevanza; senza reranker si combina
     la similarita' con un bonus per la corrispondenza lessicale esatta."""
     from embedder import embed
-    from query_expansion import expand_query
+    from query_expansion import TEMA_ARTICOLI, expand_query, norm_token
     import datetime
     ref = ref_date or datetime.date.today()
     qexp = expand_query(query)
@@ -127,6 +127,8 @@ def semantic_search(query, jurisdiction=None, max_results=10, ref_date=None, rer
                    act.title, act.act_type, act.act_number, act.act_date, act.urn,
                    act.source, act.jurisdiction,
                    (SELECT authority_level FROM sources WHERE source_name = act.source) AS authority,
+                   CASE WHEN act.urn LIKE '%%costituzione%%' THEN 0
+                        WHEN act.urn LIKE '%%regio.decreto%%' THEN 1 ELSE 2 END AS code_prio,
                    (c.embedding <=> %s::vector) AS distance
             FROM legal_chunks c
             JOIN legal_articles a ON a.id = c.article_id
@@ -150,19 +152,29 @@ def semantic_search(query, jurisdiction=None, max_results=10, ref_date=None, rer
         # così una domanda numerica trova la norma anche se l'embedding non la
         # avvicina. Il keyword boost discrimina poi tra atti diversi (es. c.p. vs DPR).
         art_refs = _ART_REF.findall(query)
-        if art_refs:
+        tema_nums = []
+        toks = set(norm_token(t) for t in query.lower().split())
+        for syns, arts in TEMA_ARTICOLI.items():
+            if set(syns) & toks:
+                tema_nums.extend(arts)
+        inj = sorted(set(art_refs) | set(tema_nums))
+        if inj:
             cur.execute(
-                base_q + " AND a.article_number = ANY(%s) ORDER BY act.title LIMIT 15",
-                base_params + [art_refs])
+                base_q + " AND a.article_number = ANY(%s)"
+                         " ORDER BY code_prio, act.title LIMIT 25",
+                base_params + [inj])
             exact = {r['id']: r for r in cur.fetchall()}
             by_id = {r['id']: r for r in out}
             for rid, row in exact.items():
+                # i codici (Costituzione, R.D. come c.p./c.c.) hanno priorita':
+                # offset -0.05 cosi' il c.p. batte atti minori con lo stesso numero
+                prio_off = 0.05 if row['code_prio'] in (0, 1) else 0.0
                 if rid in by_id:
                     # l'hit esatto era gia' tra i candidati: azzera la distanza
                     # cosi' sale in cima invece di restare sepolto dal ranking
-                    by_id[rid]['distance'] = 0.0
+                    by_id[rid]['distance'] = -prio_off
                 else:
-                    row['distance'] = 0.0
+                    row['distance'] = -prio_off
                     out.append(dict(row))
         if rerank and rerank_enabled():
             try:

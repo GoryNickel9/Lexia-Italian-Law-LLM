@@ -89,6 +89,18 @@ Scaricati in `/opt/hermes-legal/models/` sulla VPS:
 
 ## Changelog
 
+### 2026-08-18 — retrieval: temi con articoli di riferimento + priorita' codici
+- Nuova mappa `TEMA_ARTICOLI` (omicidio, furto, truffa, danno, stalking,
+  licenziamento): le domande su un tema iniettano SEMPRE gli articoli chiave
+  del codice (es. omicidio -> 575-589 c.p.), risolvendo il caso in cui il
+  bi-encoder non collega la domanda al testo degli articoli (struttura a
+  elenco di circostanze: es. 576/577 c.p. restavano fuori dai candidati).
+- Priorita' dei codici: Costituzione e R.D. (c.p./c.c.) hanno un offset
+  -0.05 nella distanza quando iniettati, cosi' battono atti minori con lo
+  stesso numero di articolo (DPR, D.Lgs).
+- Verifiche: "Pene omicidio e tipologie" -> 579, 577, 578, 576, 589, 575,
+  584 (tutti c.p.); "art. 21" -> Costituzione in top-8; T1-T15 ALL PASS.
+
 ### 2026-08-18 — retrieval: match esatto per numero di articolo + elisioni
 - Query con riferimento numerico ("art. 577", "articolo 576"): i chunk con quel
   numero entrano sempre nei candidati con priorità, anche se l'embedding non li
