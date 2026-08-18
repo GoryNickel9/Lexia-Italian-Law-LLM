@@ -4,7 +4,7 @@ Il sito è **solo una porta** per parlare con il tuo **Hermes Agent** (che vive 
 
 - **Turso (SQLite)** — database del sito: utenti, chat e messaggi
 - **PostgreSQL sulla VPS** — corpus Hermes Legal; il sito non si collega direttamente al DB
-- **API read-only Hermes Legal** — retrieval server-side del corpus locale
+- **API read-only Hermes Legal** — retrieval server-side del corpus locale (codice in `backend/`, vedi `backend/README.md`)
 
 ```
 Browser ──▶ Next.js (Vercel) ──▶ API retrieval Hermes Legal (VPS)

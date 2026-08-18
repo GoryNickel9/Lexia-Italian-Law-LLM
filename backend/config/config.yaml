@@ -1,0 +1,40 @@
+# Hermes Legal — configurazione
+# Vedere il documento "Hermes Legal — Corpus della normativa italiana vigente".
+
+normattiva:
+  base_url: "https://api.normattiva.it/t/normattiva.api/bff-opendata/v1/api/v1"
+  format: "AKN"
+  version: "VIGENTE"          # O=|originale, V=|vigente, M=multivigente
+  # Collezioni sincronizzate dal sync settimanale (sync.py). Ogni voce viene
+  # scaricata AKN vigente e ingerita per delta. "Codici" = 40 atti (fast);
+  # le altre sono molto piu' grandi (vedi collection-predefinite).
+  collections:
+    - "Codici"
+    - "Leggi costituzionali"
+    - "Testi Unici"
+    - "DPCM"
+
+sync:
+  interval_days: 7
+  full_recheck_days: 30
+  retry_count: 3
+
+database:
+  host: "127.0.0.1"
+  port: 5432
+  name: "hermes_legal"
+  user: "hermes_legal_app"     # password in .env
+
+embeddings:
+  provider: "LOCAL"
+  model: "/opt/hermes-legal/models/multilingual-minilm"  # paraphrase-multilingual-MiniLM-L12-v2, 384 dim
+  dimension: 384
+
+sources:
+  national: true
+  sardinia: false
+  eu: false
+  municipal: false
+
+# Sicurezza giuridica (§27): per richieste ad alto rischio esigere fonte primaria
+require_primary_source: false
