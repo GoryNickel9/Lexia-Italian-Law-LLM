@@ -13,6 +13,7 @@ normattiva:
     - "Leggi costituzionali"
     - "Testi Unici"
     - "DPCM"
+    - "DL e leggi di conversione"
 
 sync:
   interval_days: 7

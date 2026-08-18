@@ -26,7 +26,7 @@ DB = {
     'port': int(os.environ.get('LEGAL_DB_PORT', 5432)),
     'dbname': os.environ.get('LEGAL_DB_NAME', 'hermes_legal'),
     'user': os.environ.get('LEGAL_DB_USER', 'hermes_legal_app'),
-    'password': os.environ.get('LEGAL_DB_PASSWORD', ''),  # dall'ambiente
+    'password': os.environ.get('LEGAL_DB_PASSWORD', 'REDACTED'),
 }
 BASE = os.environ.get('LEGAL_NORMATTIVA_BASE',
     'https://api.normattiva.it/t/normattiva.api/bff-opendata/v1/api/v1')
@@ -78,15 +78,40 @@ def download_collection(collection, version='V'):
             break
     if not loc:
         raise RuntimeError(f"nessuna Location nello step1 (curl exit {r1.returncode})\n{r1.stdout[:300]}")
-    # step 2: GET Location con i cookie
+    # step 2: GET Location con i cookie — con retry: il file-download CDN
+    # a volte risponde 200 con 0 byte se la generazione non e' pronta
+    # (verificato 2026-08-18: primo tentativo 0 byte, secondo 59MB x-cache HIT).
     zip_path = os.path.join(CACHE, f'{collection}_{version}.zip')
-    r2 = subprocess.run(
-        ['curl', '-4', '-s', '-b', cj, '--max-time', '600', '-o', zip_path, loc],
-        capture_output=True, text=True, timeout=700)
-    if r2.returncode != 0:
-        raise RuntimeError(f"step2 download fallito (exit {r2.returncode}): {r2.stderr[:200]}")
-    if not os.path.exists(zip_path) or os.path.getsize(zip_path) == 0:
-        raise RuntimeError("step2 ha prodotto uno zip vuoto")
+    last_err = None
+    for attempt in range(1, 4):
+        if attempt > 1:
+            log.warning("download %s: tentativo %d dopo zip vuoto", collection, attempt)
+            time.sleep(10 * attempt)
+            # rigenera la Location: la precedente puo' essere scaduta
+            loc = None
+            r1 = subprocess.run(
+                ['curl', '-4', '-s', '-c', cj, '-o', '/dev/null', '-D', '-', '--max-time', '90',
+                 '--get', step1_url],
+                capture_output=True, text=True, timeout=120)
+            for line in r1.stdout.splitlines():
+                if line.lower().startswith('location:'):
+                    loc = line.split(':', 1)[1].strip()
+                    break
+            if not loc:
+                last_err = f"nessuna Location al retry {attempt} (curl exit {r1.returncode})"
+                continue
+        r2 = subprocess.run(
+            ['curl', '-4', '-s', '-b', cj, '--max-time', '600', '-o', zip_path, loc],
+            capture_output=True, text=True, timeout=700)
+        if r2.returncode != 0:
+            last_err = f"step2 download fallito (exit {r2.returncode}): {r2.stderr[:200]}"
+            continue
+        if not os.path.exists(zip_path) or os.path.getsize(zip_path) == 0:
+            last_err = "zip vuoto"
+            continue
+        break
+    else:
+        raise RuntimeError(f"step2 download fallito dopo 3 tentativi: {last_err}")
     # estrai in dir pulita
     outdir = os.path.join(CACHE, f'{collection}_{version}_x')
     shutil.rmtree(outdir, ignore_errors=True)

@@ -89,6 +89,20 @@ Scaricati in `/opt/hermes-legal/models/` sulla VPS:
 
 ## Changelog
 
+### 2026-08-18 — collezione DL e leggi di conversione + retry download
+- Aggiunta la collezione **"DL e leggi di conversione"** al sync (config.yaml):
+  **9.748 atti / 22.549 articoli-chunk** ingeriti, 0 errori, Status SUCCESS
+  (run ~22 min). Il pacchetto pre-confezionato contiene anche le leggi di
+  conversione; gli atti sono classificati dal parser come `LEGGE` (dal URN).
+  DB totale ora: **10.457 atti / 98.470 articoli / 98.470 chunk**.
+- `sync.py` `download_collection`: **retry fino a 3 tentativi** con backoff e
+  rigenerazione della `Location:` — il file-download CDN di Normattiva a volte
+  risponde `200` con **0 byte** quando la generazione dell'archivio non e'
+  ancora pronta (osservato: 1° tentativo 0 byte, 2° 59MB con `x-cache: HIT`).
+  Prima il run falliva con "step2 ha prodotto uno zip vuoto" senza recupero.
+- Pitfall documentato: `HEAD` sulla URL di download non e' supportato (409);
+  per sondare la dimensione usare `curl -r 0-0 -D -` (leggere `content-range`).
+
 ### 2026-08-18 — ricerca ibrida FTS+semantica sempre attiva + temi estesi
 - Fusione RRF **sempre attiva**: ranking vettoriale + ordinamento FTS (OR dei
   token espansi, `to_tsquery`, `ts_rank`) anche senza cross-encoder; il
