@@ -166,11 +166,18 @@ export async function DELETE(_request: Request, { params }: { params: Promise<{ 
   }
 
   const { chatId } = await params;
+  // prima verifica la proprietà, poi cancella: i messaggi di una chat altrui non si toccano
+  const [chat] = await db
+    .select({ id: chats.id })
+    .from(chats)
+    .where(and(eq(chats.id, chatId), eq(chats.userId, session.user.id)));
+  if (!chat) {
+    return NextResponse.json({ error: "Chat non trovata" }, { status: 404 });
+  }
+
   // eliminazione esplicita: non si affida al cascade di SQLite
   await db.delete(messages).where(eq(messages.chatId, chatId));
-  await db
-    .delete(chats)
-    .where(and(eq(chats.id, chatId), eq(chats.userId, session.user.id)));
+  await db.delete(chats).where(eq(chats.id, chatId));
 
   return NextResponse.json({ ok: true });
 }
