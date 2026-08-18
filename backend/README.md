@@ -89,6 +89,25 @@ Scaricati in `/opt/hermes-legal/models/` sulla VPS:
 
 ## Changelog
 
+### 2026-08-18 — recupero dei 72 R.D. mancanti (troncati dal CDN)
+- Script `recover_missing_rd.py`: scarica da `POST /api/v1/atto/dettaglio-atto-urn`
+  e costruisce un AKN sintetico (FRBR + mainBody con `<p>Art. N. ...</p>`) per
+  gli atti il cui `articoloHtml` contiene testo reale.
+- Esito: **12 dei 72 recuperati** (9 dal primo run + 3 dal secondo), inclusi
+  R.D. 267/1942 (legge fallimentare), 1415/1938, 1077/1940, 1592/1933,
+  1775/1933, 1629/1930... Gli altri **60** (54 abrogati + 6 con solo
+  preambolo) non hanno testo recuperabile: l'endpoint restituisce solo
+  "PROVVEDIMENTO ABROGATO" o il preambolo senza articoli.
+- ⚠️ **Pitfall (fissato)**: il primo run del recover usava `ingest.ingest()`
+  che fa upsert per URN con DELETE degli articoli esistenti — ha sovrascritto
+  2 atti completi (R.D. 1592/1933: 314 art., 1775/1933: 237 art., dalla
+  collezione Testi Unici) con il decreto di approvazione a 1 articolo.
+  Ripristinati dai file originali; ora `act_exists_complete()` skippa gli
+  URN gia' presenti nel DB con articoli. Regola: **non fare upsert di atti
+  parziali su URN gia' completi**.
+- DB totale finale: **148.917 atti / 501.686 articoli / 501.686 chunk**.
+  T1-T15 ALL PASS; API pubblica OK.
+
 ### 2026-08-18 — collezioni DPR + Regi decreti (corpus quasi completo)
 - **DPR**: 47.706 atti / 193.878 articoli-chunk ingeriti, 0 errori, SUCCESS.
 - **Regi decreti**: 90.909 atti / 217.284 articoli-chunk ingeriti, SUCCESS;
