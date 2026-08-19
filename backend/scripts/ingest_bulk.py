@@ -71,7 +71,15 @@ def main():
         for _p, _h, _m, arts in pending:
             texts.extend(a['text'] for a in arts)
         from embedder import embed_batch
-        vecs = embed_batch(texts, batch_size=min(BATCH, 512))
+        # Sottobatch a 256 testi: con atti enormi nel pending (ex-codici da
+        # 2000+ articoli) embed_batch su tutti i testi insieme esplode la RAM
+        # (OOM killer su 7.7G con zero swap). I vettori sono accumulati in
+        # ordine; gli atti vengono poi inseriti con il solito loop.
+        SUB = 256
+        vecs = []
+        for i in range(0, len(texts), SUB):
+            chunk = texts[i:i + SUB]
+            vecs.extend(embed_batch(chunk, batch_size=min(BATCH, 128)))
         conn = ingest.connect()
         try:
             cur = conn.cursor()
@@ -128,6 +136,17 @@ def main():
             pending.append((xml, h, meta, arts))
             if len(pending) >= BATCH:
                 flush()
+            elif len(pending) >= 16:
+                # guardia RAM: se available < 600MB, flush anticipato per
+                # evitare il picco di memoria del prossimo embed
+                try:
+                    with open('/proc/meminfo') as f:
+                        mem = dict(l.split(':', 1) for l in f)
+                    avail = int(mem['MemAvailable'].strip().split()[0]) / 1024
+                    if avail < 600:
+                        flush()
+                except Exception:
+                    pass
         except Exception as e:
             errors += 1
             if errors <= 20:

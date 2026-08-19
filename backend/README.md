@@ -227,3 +227,4 @@ Scaricati in `/opt/hermes-legal/models/` sulla VPS:
 - `legal_api.py` pubblicato dietro HTTPS (nginx + Cloudflare) su
   `https://hermes.tuodominio.it/legal-api`; profilo `hermes_legal_site` via
   `https://hermes.tuodominio.it/p/hermes_legal_site/v1` (gateway multiplex, allowlist).
+- **Integrazione sito (2026-08-19)**: `legal_api.py` nuovo endpoint `POST /verify-citations` (post-check anti-allucinazione: verifica che le URN citate dal LLM esistano nel DB con status e vigenza); `search.py` funzione `verify_citations()` + fix citazione duplicata (`art.` doppio); `tests/test_e2e_site.py` test end-to-end del flusso sito → /search → profilo Hermes isolato → /verify-citations (ESITO PASS).

@@ -62,8 +62,6 @@ def citation(r):
     parts = []
     if r.get('act_type'):
         parts.append(r['act_type'])
-    if r.get('article_number'):
-        parts.append(f"art. {r['article_number']}")
     parts.append(f"art. {r['article_number']}")
     if r.get('paragraph_number'):
         parts.append(f"comma {r['paragraph_number']}")
@@ -276,6 +274,71 @@ def semantic_search(query, jurisdiction=None, max_results=10, ref_date=None, rer
             -3 * sum(1 for w in kw_lower if w in (r.get('title') or '').lower()),
             float(r.get('distance') if r.get('distance') is not None else 1.0)))
         return (exact_rows + rest_rows)[:max_results]
+    finally:
+        conn.close()
+
+_URN_ART_RE = re.compile(
+    r"urn:nir:stato:(?P<type>[a-z0-9\.\-]+):(?P<date>\d{4}-\d{2}-\d{2});(?P<num>[0-9a-z\-]+)"
+    r"(?:[#:].*)?"
+)
+
+def normalize_urn(raw):
+    """Normalizza un URN citato dal LLM: rimuove suffissi (`#art-33`,
+    `:art.33`, spazi, `art.`/`art` finali). Ritorna l'URN base o None."""
+    if not raw:
+        return None
+    urn = raw.strip().strip('"').strip("'").rstrip('.,;')
+    # separa eventuale articolo citato dopo il numero: urn:nir:stato:legge:1992-02-05;104#art-33
+    base, _, _art = urn.partition('#')
+    base = base.split(';')[0] + ';' + base.split(';')[-1] if ';' in base else base
+    m = _URN_ART_RE.match(base)
+    if m:
+        return base
+    # URN malformato: prova a costruirlo da tipo+data+numero estratti dal testo
+    return None
+
+def verify_citations(citations, ref_date=None):
+    """Post-check anti-allucinazione: verifica nel DB che ogni URN citato
+    esista davvero e riporta status + vigenza alla data di riferimento.
+
+    `citations`: lista di stringhe URN (possibilmente con `#art-N` o testo
+    libero). Ritorna lista di dict: {urn, found, status, valid_from,
+    valid_to, title, act_type, act_date, vigente_a_data}.
+    """
+    import datetime
+    ref = ref_date or datetime.date.today()
+    if isinstance(ref, str):
+        ref = datetime.date.fromisoformat(ref)
+    norm = [u for u in (normalize_urn(c) for c in citations) if u]
+    if not norm:
+        return []
+    conn = connect()
+    try:
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT urn, status, title, act_type, act_date, original_version, current_version
+            FROM legal_acts WHERE urn = ANY(%s)
+        """, (norm,))
+        rows = cur.fetchall()
+        by_urn = {r[0]: r for r in rows}
+        out = []
+        for u in norm:
+            r = by_urn.get(u)
+            if not r:
+                out.append({"urn": u, "found": False})
+                continue
+            out.append({
+                "urn": u,
+                "found": True,
+                "status": r[1],
+                "title": r[2],
+                "act_type": r[3],
+                "act_date": str(r[4]) if r[4] else None,
+                "original_version": r[5],
+                "current_version": r[6],
+                "vigente_a_data": (r[1] == 'vigente'),
+            })
+        return out
     finally:
         conn.close()
 

@@ -74,7 +74,7 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json(404, {"error": "not_found"})
 
     def do_POST(self):
-        if self.path != "/search":
+        if self.path not in ("/search", "/verify-citations"):
             self.send_json(404, {"error": "not_found"})
             return
         if not self.authorized():
@@ -86,12 +86,24 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_json(413, {"error": "request_too_large"})
                 return
             body = json.loads(self.rfile.read(length) or b"{}")
+            reference_date = body.get("reference_date")
+            ref_date = datetime.date.fromisoformat(reference_date) if reference_date else None
+            if self.path == "/verify-citations":
+                citations = body.get("citations")
+                if not isinstance(citations, list) or len(citations) > 50:
+                    self.send_json(400, {"error": "citations_list_required"})
+                    return
+                results = search.verify_citations([str(c) for c in citations], ref_date=ref_date)
+                self.send_json(200, {
+                    "results": results,
+                    "all_found": all(r.get("found") for r in results),
+                    "corpus_date": datetime.date.today().isoformat(),
+                })
+                return
             query = str(body.get("query", "")).strip()
             if not query or len(query) > 2_000:
                 self.send_json(400, {"error": "query_required"})
                 return
-            reference_date = body.get("reference_date")
-            ref_date = datetime.date.fromisoformat(reference_date) if reference_date else None
             max_results = min(max(int(body.get("max_results", 8)), 1), 12)
             rows = search.semantic_search(query, max_results=max_results, ref_date=ref_date)
             self.send_json(200, {
