@@ -89,7 +89,10 @@ Scaricati in `/opt/hermes-legal/models/` sulla VPS:
 
 ## Changelog
 
-### 2026-08-19 — collezioni minori (D.Lgs, luogotenenziali, delegazione UE, RD legislativi) + benchmark retrieval
+- **Gap leggi ordinarie chiuso (2026-08-19)**: `recover_leggi_ordinarie.py` recupera le leggi non-DL (104/1992, 241/1990, 300/1970, 633/1941, 833/1978, 689/1981, 354/1975, 218/1995, 76/2016, ...) via `ricerca/semplice` (codiceRedazionale) + `dettaglio-atto` con paginazione `idArticolo=1..N`. Attenzione: `articoloHtml` del dettaglio-atto-urn restituisce SOLO il 1° articolo; il testo completo richiede la paginazione per idArticolo. Leggi a struttura "art. 1 unico con N commi" (es. 76/2016) escono con 1 articolo lungo — check `< 2` troppo severo, accettare se len > 1000.
+- **Ingest bulk (2026-08-19)**: `ingest_bulk.py` per collezioni enormi (abrogati 124k): embedding in batch (batch 64 = 41 atti/s sugli skip, RAM contenuta), transazioni a gruppi, `--resume` per hash-skip, `--max-attos` per tranche. `ingest_abrogati_loop.sh` lo rilancia in tranche da 20k con retry. **Pitfall RAM**: batch 256 + modello + API (1.6G) su 7.7G con zero swap = OOM (exit -9); batch 64 è il compromesso stabile.
+- **Pitfall FK**: `legal_chunks.article_id` NON aveva indice → ogni DELETE cascade faceva full scan di 575k righe (~2s/atto); `CREATE INDEX CONCURRENTLY idx_chunks_article` → 18ms (-100x).
+- **Changelog**: 2026-08-19 — collezioni minori (D.Lgs 2.270, luogotenenziali, delegazione UE, RD legislativi) + benchmark retrieval MRR 0.321→0.621 + gap leggi ordinarie chiuso (20 leggi) + ingest abrogati in corso.
 - Nuove collezioni in config.yaml: **Decreti Legislativi** (2.922 atti — prima nel DB c'erano solo 56 D.Lgs!), Decreti legislativi luogotenenziali (1.215), Leggi di delegazione europea (32), Regi decreti legislativi (120), Atti normativi abrogati (124.043, formato O).
 - `sync.py`: `COLLECTION_OVERRIDES` — formato e status per collezione. Gli **atti abrogati** scaricati in formato O vengono marcati `status='abrogato'` in legal_acts/legal_articles/chunks (prima l'ingest forzava sempre 'vigente': errore giuridico corretto).
 - `ingest.py`: parametro `status` per atto (upsert + articoli + chunk metadata).
