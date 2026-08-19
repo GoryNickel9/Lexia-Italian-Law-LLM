@@ -18,6 +18,10 @@ echo "=== loop abrogati start $(date -Is) ===" >> "$LOG"
 
 for i in $(seq 1 40); do
   echo "--- tranche $i ($(date +%H:%M:%S)) ---" >> "$LOG"
+  # ulimit -v 2.5G: ultima difesa anti-OOM — se il processo supera 2.5G di
+  # memoria virtuale, malloc fallisce (MemoryError) invece di far scattare
+  # l'OOM killer di sistema che uccide anche altri processi.
+  ulimit -v 2621440 2>/dev/null
   timeout 5400 /usr/local/lib/hermes-agent/venv/bin/python3 \
     ingest_bulk.py "$SRC" --status abrogato --batch "$BATCH" \
     --max-attos "$MAX_ATTOS" --resume >> "$LOG" 2>&1

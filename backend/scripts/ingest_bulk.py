@@ -71,15 +71,19 @@ def main():
         for _p, _h, _m, arts in pending:
             texts.extend(a['text'] for a in arts)
         from embedder import embed_batch
-        # Sottobatch a 256 testi: con atti enormi nel pending (ex-codici da
+        # Sottobatch a 96 testi: con atti enormi nel pending (ex-codici da
         # 2000+ articoli) embed_batch su tutti i testi insieme esplode la RAM
-        # (OOM killer su 7.7G con zero swap). I vettori sono accumulati in
-        # ordine; gli atti vengono poi inseriti con il solito loop.
-        SUB = 256
+        # (OOM killer ripetuti su 7.7G con zero swap, VPS condivisa con API
+        # 1.6G + vite + gateway + postgres). 96 testi = picco contenuto;
+        # i testi consumati vengono liberati subito (del).
+        SUB = 96
         vecs = []
         for i in range(0, len(texts), SUB):
             chunk = texts[i:i + SUB]
-            vecs.extend(embed_batch(chunk, batch_size=min(BATCH, 128)))
+            v = embed_batch(chunk, batch_size=min(len(chunk), 32))
+            vecs.extend(v)
+            texts[i:i + SUB] = []
+        del texts
         conn = ingest.connect()
         try:
             cur = conn.cursor()
@@ -136,14 +140,14 @@ def main():
             pending.append((xml, h, meta, arts))
             if len(pending) >= BATCH:
                 flush()
-            elif len(pending) >= 16:
-                # guardia RAM: se available < 600MB, flush anticipato per
+            elif len(pending) >= 8:
+                # guardia RAM: se available < 900MB, flush anticipato per
                 # evitare il picco di memoria del prossimo embed
                 try:
                     with open('/proc/meminfo') as f:
-                        mem = dict(l.split(':', 1) for l in f)
-                    avail = int(mem['MemAvailable'].strip().split()[0]) / 1024
-                    if avail < 600:
+                        m = dict(l.split(':') for l in f)
+                        avail_mb = int(m['MemAvailable'].strip().split()[0]) / 1024
+                    if avail_mb < 900:
                         flush()
                 except Exception:
                     pass
