@@ -76,6 +76,8 @@ EXPANSIONS = [
      "calunnia falsa accusa"),
     ({"separazione", "separarsi", "divorzio", "divorziare"},
      "separazione divorzio effetti patrimoniali coniugi"),
+    ({"uguaglianza", "uguale", "uguali", "eguaglianza", "eguale", "eguali", "discriminazione", "discriminazioni"},
+     "uguaglianza eguali pari dignità sociale davanti alla legge"),
     ({"rapina", "rapine"},
      "rapina violenza minaccia impossessamento"),
 ]
@@ -127,6 +129,7 @@ TEMA_ARTICOLI = {
     ("valutazione", "rischi", "dvr"): ["28"],
     ("innocenza", "colpevole"): ["27", "6"],
     ("permesso", "permessi"): ["33"],
+    ("uguaglianza", "uguale", "uguali", "pari dignita'", "pari dignità", "discriminazione", "discriminazioni"): ["3"],
     ("danneggiamento", "danneggiare", "danneggiato", "danneggia", "danneggiano",
      "vandalismo", "imbrattare"): ["635"],
     ("stradale", "stradali"): ["589-bis"],

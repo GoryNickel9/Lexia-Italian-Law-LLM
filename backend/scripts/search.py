@@ -17,7 +17,7 @@ DB = {
     'port': int(os.environ.get('LEGAL_DB_PORT', 5432)),
     'dbname': os.environ.get('LEGAL_DB_NAME', 'hermes_legal'),
     'user': os.environ.get('LEGAL_DB_USER', 'hermes_legal_app'),
-    'password': os.environ.get('LEGAL_DB_PASSWORD', '')  # richiesta dall'ambiente,
+    'password': os.environ.get('LEGAL_DB_PASSWORD', 'REDACTED'),
 }
 def connect(): return psycopg2.connect(**DB)
 
@@ -182,13 +182,38 @@ def semantic_search(query, jurisdiction=None, max_results=10, ref_date=None, rer
         for syns, arts in TEMA_ARTICOLI.items():
             if set(syns) & toks:
                 tema_nums.extend(arts)
+        # keyword boost: deduplicato e con peso piccolo — rompe i pareggi
+        # senza ribaltare l'ordinamento (vale anche per il tier esatto).
+        # Esclude token di rumore ('art.', 'art', 'comma', 'lettera'...) che
+        # compaiono in quasi ogni testo legale e falsano il match (es. 'art.'
+        # in una citazione faceva battere la Costituzione da DPR irrilevanti).
+        _NOISE_KW = {"art", "art.", "articolo", "articoli", "comma", "commi",
+                     "lettera", "lettere", "codice", "legge", "decreto",
+                     "numero", "n", "del", "della", "dei", "con", "per", "che"}
+        kw = [w for w in dict.fromkeys(w for w in qexp.lower().split() if len(w) > 3)
+              if w not in _NOISE_KW]
         inj = sorted(set(art_refs) | set(tema_nums))
         exact_ids = set()
         if inj:
+            # ranking SQL per keyword nel testo: con 90k+ R.D. quasi tutti con
+            # lo stesso numero articolo, l'ordine code_prio (LIMIT 100) tagliava
+            # fuori i D.Lgs pertinenti (es. D.Lgs 81/2008 art. 28 'valutazione
+            # dei rischi' mai iniettato perche' preceduto da 90k R.D.). Il
+            # testo contenente le keyword della domanda sale in cima.
+            kw_sql = [w for w in kw if len(w) > 3][:8]
+            # il match sul TITOLO dell'atto pesa 3x (un atto che ha la keyword
+            # nel nome — es. 'COSTITUZIONE' — e' quasi sempre quello giusto,
+            # anche se il testo dell'articolo usa sinonimi: art. 3 Cost. dice
+            # 'eguali', non 'uguaglianza').
+            rank_expr = " + ".join(
+                f"(CASE WHEN a.text ILIKE %s OR COALESCE(a.article_heading,'') ILIKE %s THEN 1 ELSE 0 END "
+                f"+ CASE WHEN act.title ILIKE %s THEN 3 ELSE 0 END)"
+                for _ in kw_sql) or "0"
+            kw_params = [f"%{w}%" for w in kw_sql for _ in (0, 1, 2)]
             cur.execute(
                 base_q + " AND a.article_number = ANY(%s)"
-                         " ORDER BY code_prio, act.title LIMIT 25",
-                base_params + [inj])
+                         f" ORDER BY ({rank_expr}) DESC, code_prio, act.title LIMIT 100",
+                base_params + [inj] + kw_params)
             exact = {r['id']: r for r in cur.fetchall()}
             by_id = {r['id']: r for r in out}
             for rid, row in exact.items():
@@ -206,8 +231,7 @@ def semantic_search(query, jurisdiction=None, max_results=10, ref_date=None, rer
                     row['distance'] = -prio_off
                     out.append(dict(row))
         # keyword boost: deduplicato e con peso piccolo — rompe i pareggi
-        # senza ribaltare l'ordinamento (vale anche per il tier esatto)
-        kw = list(dict.fromkeys(w for w in qexp.lower().split() if len(w) > 3))
+        # senza ribaltare l'ordinamento (vale anche per il tier esatto).
         boost = float(os.environ.get('LEGAL_KEYWORD_BOOST', '0.01'))
         for r in out:
             txt = (r['text'] or '').lower()
@@ -240,7 +264,17 @@ def semantic_search(query, jurisdiction=None, max_results=10, ref_date=None, rer
         fused = _rrf_fusion(ranked_lists)
         order = {item_id: rank for rank, item_id in enumerate(fused)}
         rest_rows.sort(key=lambda r: order.get(r['id'], 10**9))
-        exact_rows.sort(key=lambda r: r['distance'])
+        # tier esatto: prima gli articoli il cui TESTO contiene le keyword della
+        # domanda (discrimina l'atto pertinente: es. D.Lgs 81/2008 art. 28
+        # "valutazione dei rischi" batte Costituzione art. 28 ininfluente),
+        # poi chi ha il TITOLO dell'atto che matcha (es. query con
+        # "costituzione" -> art. 3 Cost. anche se il testo usa "eguali"), poi
+        # per distanza (priorita' codici via offset code_prio).
+        kw_lower = [w for w in kw if w]
+        exact_rows.sort(key=lambda r: (
+            -sum(1 for w in kw_lower if w in (r['text'] or '').lower()),
+            -3 * sum(1 for w in kw_lower if w in (r.get('title') or '').lower()),
+            float(r.get('distance') if r.get('distance') is not None else 1.0)))
         return (exact_rows + rest_rows)[:max_results]
     finally:
         conn.close()

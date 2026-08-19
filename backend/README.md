@@ -96,6 +96,11 @@ Scaricati in `/opt/hermes-legal/models/` sulla VPS:
 - `ingest_bulk.py` (nuovo): ingest ottimizzato per collezioni enormi — embedding in batch da 256/512 invece che per-atto (~37 testi/s vs ~3/s; 124k abrogati: da ~86 ore a ~2 ore).
 - `tests/eval_retrieval.py` (nuovo): benchmark di retrieval con 25 domande legali reali + citazione attesa; metriche Recall@k e MRR@k; salvataggio incrementale anti-timeout.
 - **Benchmark**: MRR@10 **0.321 → 0.455** (+42%), Recall@1 20% → 32%, Recall@10 56% → 72%. Fix in `query_expansion.py`: `norm_token()` ora rimuove la punteggiatura (prima `"rapina?"` non matchava i sinonimi → art. 628 mai iniettato); +10 temi nuovi (violenza privata→610, usufrutto→978, prescrizione→2946, ebbrezza→186, soccorso→45, permessi→33, valutazione rischi→28, innocenza→27…).
+- **Tuning retrieval finale** (`search.py`): MRR@10 **0.621**, Recall@1 **52%**, Recall@10 **84%** (da 0.321/20%/56% baseline). Fix:
+  1. Tier esatto iniettato con ranking SQL per keyword nel testo (il `ORDER BY code_prio LIMIT 25` con 90k+ R.D. tagliava fuori i D.Lgs: D.Lgs 81/2008 art. 28 mai trovato);
+  2. match sul **titolo atto** pesato 3x (query con "costituzione" → art. 3 Cost. anche se il testo dice "eguali" e non "uguaglianza");
+  3. **token di rumore** esclusi dalle keyword ("art.", "comma", "codice"… falsavano il match: "art." in una citazione faceva battere la Costituzione da DPR irrilevanti);
+  4. sinonimi "uguaglianza→eguali" in EXPANSIONS.
 - DB dopo D.Lgs: **151.131 atti / 557.692 articoli** (atteso ~152.500 al termine delle 3 collezioni piccole).
 
 ### 2026-08-18 — recupero dei 72 R.D. mancanti (troncati dal CDN)
