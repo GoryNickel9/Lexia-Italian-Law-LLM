@@ -22,7 +22,7 @@ DB = {
     'port': int(os.environ.get('LEGAL_DB_PORT', 5432)),
     'dbname': os.environ.get('LEGAL_DB_NAME', 'hermes_legal'),
     'user': os.environ.get('LEGAL_DB_USER', 'hermes_legal_app'),
-    'password': os.environ.get('LEGAL_DB_PASSWORD', ''),  # dall'ambiente
+    'password': os.environ.get('LEGAL_DB_PASSWORD', 'REDACTED'),
 }
 
 def connect():
@@ -55,7 +55,7 @@ def _embed_batch(texts):
     from embedder import embed_batch
     return embed_batch(texts)
 
-def upsert_act(conn, meta, src_file, source_hash):
+def upsert_act(conn, meta, src_file, source_hash, status='vigente'):
     cur = conn.cursor()
     urn = meta.get('urn')
     act_type = meta.get('act_type') or 'Atto'
@@ -76,31 +76,31 @@ def upsert_act(conn, meta, src_file, source_hash):
         if row:
             a_id = row[0]
             cur.execute("""UPDATE legal_acts SET title=%s, act_type=%s, act_number=%s, act_date=%s,
-                           source=%s, status='vigente', source_file=%s, updated_at=now() WHERE id=%s""",
-                        (title, act_type, act_number, act_date, source_name, src_file, a_id))
+                           source=%s, status=%s, source_file=%s, updated_at=now() WHERE id=%s""",
+                        (title, act_type, act_number, act_date, source_name, status, src_file, a_id))
         else:
             cur.execute("""INSERT INTO legal_acts
                 (title, act_type, act_number, act_date, urn, source, jurisdiction, status, source_hash)
                 VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
-                (title, act_type, act_number, act_date, urn, source_name, 'Italia', 'vigente', source_hash))
+                (title, act_type, act_number, act_date, urn, source_name, 'Italia', status, source_hash))
             a_id = cur.fetchone()[0]
     else:
         # senza URN, chiave sul nome+data
         cur.execute("""INSERT INTO legal_acts
             (title, act_type, act_number, act_date, urn, source, jurisdiction, status, source_hash)
             VALUES (%s,%s,%s,%s,NULL,%s,%s,%s,%s) RETURNING id""",
-            (title, act_type, act_number, act_date, source_name, 'Italia', 'vigente', source_hash))
+            (title, act_type, act_number, act_date, source_name, 'Italia', status, source_hash))
         a_id = cur.fetchone()[0]
     cur.close()
     return a_id
 
-def ingest(xml_path):
+def ingest(xml_path, status='vigente'):
     src_hash = content_hash(open(xml_path,'rb').read())
     meta, articles = parse_akn(xml_path)
     source_name = _source_name(meta, xml_path)
     conn = connect()
     try:
-        a_id = upsert_act(conn, meta, xml_path, src_hash)
+        a_id = upsert_act(conn, meta, xml_path, src_hash, status=status)
         cur = conn.cursor()
         # dedup: cancella articoli esistenti di questo atto (idempotente re-ingest)
         cur.execute("DELETE FROM legal_articles WHERE act_id=%s", (a_id,))
@@ -112,11 +112,11 @@ def ingest(xml_path):
             cur.execute("""INSERT INTO legal_articles
                 (act_id, article_number, article_heading, paragraph_number, letter,
                  level, text, valid_from, valid_to, status, source_file, source_hash)
-                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,NULL,'vigente',%s,%s) RETURNING id""",
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,NULL,%s,%s,%s) RETURNING id""",
                 (a_id, art['article_number'], art['article_heading'],
                  art['paragraph_number'], art['letter'], art['level'], art['text'],
                  art.get('valid_from'),
-                 xml_path, content_hash(art['text'])))
+                 status, xml_path, content_hash(art['text'])))
             art_id = cur.fetchone()[0]
             # chunk
             metadata = {
@@ -124,7 +124,7 @@ def ingest(xml_path):
                 'article': art['article_number'],
                 'paragraph': art['paragraph_number'],
                 'level': art['level'],
-                'valid_from': None, 'valid_to': None, 'status': 'vigente',
+                'valid_from': None, 'valid_to': None, 'status': status,
                 'urn': meta.get('urn'),
                 'source': source_name, 'retrieved_at': datetime.date.today().isoformat(),
                 'source_file': xml_path,

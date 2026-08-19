@@ -16,6 +16,11 @@ normattiva:
     - "DL e leggi di conversione"
     - "DPR"
     - "Regi decreti"
+    - "Decreti Legislativi"
+    - "Decreti legislativi luogotenenziali"
+    - "Leggi di delegazione europea"
+    - "Regi decreti legislativi"
+    - "Atti normativi abrogati (in originale)"   # formato O + status 'abrogato' (override in sync.py)
 
 sync:
   interval_days: 7

@@ -82,10 +82,13 @@ EXPANSIONS = [
 
 
 _ELISION = re.compile(r"^(?:l|un|all|dell|nell|sull|quest|quell|d|ch|c|gl|agl|dagl|degl|negl|sugl)'")
+_PUNCT = re.compile(r"[^\w\s'-]")  # ? ! . , ; : ) ( ... tolte dal match sinonimi
 
 
 def norm_token(token):
-    """Rimuove l'elisione italiana (l', dell', un', ...) per il match sui sinonimi."""
+    """Rimuove punteggiatura ed elisione italiana (l', dell', un', ...)
+    per il match sui sinonimi: 'rapina?' deve matchare 'rapina'."""
+    token = _PUNCT.sub('', token)
     return _ELISION.sub('', token.lower()) or token.lower()
 
 
@@ -115,7 +118,15 @@ TEMA_ARTICOLI = {
     ("diffamazione", "diffamare", "diffamato"): ["595", "596"],
     ("calunnia", "calunniare", "calunniato"): ["368"],
     ("stupro", "sessuale", "sessuali", "molestie", "molestare"): ["609-bis", "609-ter", "609-quater"],
-    ("minaccia", "minacce", "minacciare", "minacciato"): ["612"],
+    ("minaccia", "minacce", "minacciare", "minacciato", "violenza", "costringere", "costretto", "privata"): ["610", "612"],
+    ("usufrutto", "usufruttuario", "usufruttuaria"): ["978", "979", "981", "1002"],
+    ("prescrizione", "prescritto", "prescritta", "decadenza"): ["2946", "2934", "2947", "2948", "2949"],
+    ("ebbrezza", "ubriaco", "ubriaca", "alcol", "alcohol", "alcool"): ["186"],
+    ("soccorso", "emergenza", "emergenze"): ["45"],
+    ("disabile", "disabili", "disabilita'", "disabilità", "handicap", "assistenza"): ["33"],
+    ("valutazione", "rischi", "dvr"): ["28"],
+    ("innocenza", "colpevole"): ["27", "6"],
+    ("permesso", "permessi"): ["33"],
     ("danneggiamento", "danneggiare", "danneggiato", "danneggia", "danneggiano",
      "vandalismo", "imbrattare"): ["635"],
     ("stradale", "stradali"): ["589-bis"],

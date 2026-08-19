@@ -34,6 +34,21 @@ BASE = os.environ.get('LEGAL_NORMATTIVA_BASE',
 CACHE = os.environ.get('LEGAL_CACHE', '/tmp/hermes-legal-sync')
 os.makedirs(CACHE, exist_ok=True)
 
+# Collezioni speciali: formato richiesto a Normattiva e status giuridico da
+# assegnare in DB. Default: V (vigente) + status 'vigente'. Gli atti abrogati
+# in originale NON hanno versione vigente (formatoRichiesta=V -> 404) e devono
+# essere marcati 'abrogato' in legal_acts/legal_articles, altrimenti il corpus
+# li tratterebbe come normativa vigente (errore di correttezza giuridica).
+COLLECTION_OVERRIDES = {
+    'Atti normativi abrogati (in originale)': {'version': 'O', 'status': 'abrogato'},
+}
+
+def _collection_version(collection):
+    return COLLECTION_OVERRIDES.get(collection, {}).get('version', 'V')
+
+def _collection_status(collection):
+    return COLLECTION_OVERRIDES.get(collection, {}).get('status', 'vigente')
+
 def connect(): return psycopg2.connect(**DB)
 
 # ---------------------------------------------------------------------------
@@ -289,7 +304,9 @@ def main():
 
         # 2) per ogni collezione: download vigente + ingest del delta
         for collection in collections:
-            extracted = download_collection(collection, 'V')
+            version = _collection_version(collection)
+            status = _collection_status(collection)
+            extracted = download_collection(collection, version)
             xmls = glob.glob(os.path.join(extracted, '**', '*.xml'), recursive=True)
             report['checked'] += len(xmls)
             if not xmls:
@@ -321,7 +338,7 @@ def main():
                     report['skipped'] += 1
                 else:
                     try:
-                        _a_id, n = ingest.ingest(xml)  # commit per atto; resume-safe via hash
+                        _a_id, n = ingest.ingest(xml, status=status)  # commit per atto; resume-safe via hash
                     except Exception as e:
                         # File malformati (es. AKN troncati dal CDN Normattiva):
                         # logga, conta, NON bloccare il run (i validi proseguono).

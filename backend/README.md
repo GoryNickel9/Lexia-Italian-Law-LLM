@@ -89,6 +89,15 @@ Scaricati in `/opt/hermes-legal/models/` sulla VPS:
 
 ## Changelog
 
+### 2026-08-19 — collezioni minori (D.Lgs, luogotenenziali, delegazione UE, RD legislativi) + benchmark retrieval
+- Nuove collezioni in config.yaml: **Decreti Legislativi** (2.922 atti — prima nel DB c'erano solo 56 D.Lgs!), Decreti legislativi luogotenenziali (1.215), Leggi di delegazione europea (32), Regi decreti legislativi (120), Atti normativi abrogati (124.043, formato O).
+- `sync.py`: `COLLECTION_OVERRIDES` — formato e status per collezione. Gli **atti abrogati** scaricati in formato O vengono marcati `status='abrogato'` in legal_acts/legal_articles/chunks (prima l'ingest forzava sempre 'vigente': errore giuridico corretto).
+- `ingest.py`: parametro `status` per atto (upsert + articoli + chunk metadata).
+- `ingest_bulk.py` (nuovo): ingest ottimizzato per collezioni enormi — embedding in batch da 256/512 invece che per-atto (~37 testi/s vs ~3/s; 124k abrogati: da ~86 ore a ~2 ore).
+- `tests/eval_retrieval.py` (nuovo): benchmark di retrieval con 25 domande legali reali + citazione attesa; metriche Recall@k e MRR@k; salvataggio incrementale anti-timeout.
+- **Benchmark**: MRR@10 **0.321 → 0.455** (+42%), Recall@1 20% → 32%, Recall@10 56% → 72%. Fix in `query_expansion.py`: `norm_token()` ora rimuove la punteggiatura (prima `"rapina?"` non matchava i sinonimi → art. 628 mai iniettato); +10 temi nuovi (violenza privata→610, usufrutto→978, prescrizione→2946, ebbrezza→186, soccorso→45, permessi→33, valutazione rischi→28, innocenza→27…).
+- DB dopo D.Lgs: **151.131 atti / 557.692 articoli** (atteso ~152.500 al termine delle 3 collezioni piccole).
+
 ### 2026-08-18 — recupero dei 72 R.D. mancanti (troncati dal CDN)
 - Script `recover_missing_rd.py`: scarica da `POST /api/v1/atto/dettaglio-atto-urn`
   e costruisce un AKN sintetico (FRBR + mainBody con `<p>Art. N. ...</p>`) per
