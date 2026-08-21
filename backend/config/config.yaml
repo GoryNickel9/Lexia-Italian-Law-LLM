@@ -17,9 +17,12 @@ normattiva:
     - "DPR"
     - "Regi decreti"
     - "Decreti Legislativi"
-    - "Decreti legislativi luogotenenziali"
-    - "Leggi di delegazione europea"
-    - "Regi decreti legislativi"
+    # "Decreti legislativi luogotenenziali", "Regi decreti legislativi" e
+    # "Leggi di delegazione europea" RIMOSSI: il download vigente (V) da
+    # Normattiva restituisce zip vuoto (problema lato server, 2026-08-21);
+    # il contenuto e' gia' nel DB (1.216 D.Lgs luogot. >= 1.215, 120 R.D.
+    # legislativi = 120, delegazione europea marginale tra le LEGGE).
+    # Re-inserirli quando il download funzionera' di nuovo.
     - "Atti normativi abrogati (in originale)"   # formato O + status 'abrogato' (override in sync.py)
 
 sync:
