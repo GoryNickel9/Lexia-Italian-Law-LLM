@@ -14,7 +14,7 @@ export LEGAL_CACHE="${LEGAL_CACHE:-/opt/hermes-legal/cache}"
 LOG="/opt/hermes-legal/logs/sync.log"
 mkdir -p "$(dirname "$LOG")"
 echo "==== $(date) ====" >> "$LOG"
-cd /opt/hermes-legal && python3 scripts/sync.py >> "$LOG" 2>&1
+cd /opt/hermes-legal && /usr/local/lib/hermes-agent/venv/bin/python3 scripts/sync.py >> "$LOG" 2>&1
 rc=$?
 echo "exit=$rc" >> "$LOG"
 exit $rc
