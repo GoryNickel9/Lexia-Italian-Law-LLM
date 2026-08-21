@@ -13,7 +13,7 @@ Flusso:
 Usage:
   python3 sync.py [--collection "Codici"] [--since YYYY-MM-DD] [--max-new-acts 25]
 """
-import os, sys, json, glob, shutil, subprocess, datetime, tempfile, logging, re, signal
+import os, sys, json, glob, shutil, subprocess, datetime, tempfile, logging, re, signal, time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import psycopg2
 import ingest
