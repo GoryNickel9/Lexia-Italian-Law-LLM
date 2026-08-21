@@ -98,11 +98,12 @@ def download_collection(collection, version='V'):
     # a volte risponde 200 con 0 byte se la generazione non e' pronta
     # (verificato 2026-08-18: primo tentativo 0 byte, secondo 59MB x-cache HIT).
     zip_path = os.path.join(CACHE, f'{collection}_{version}.zip')
+    zip_tmp = zip_path + '.tmp'
     last_err = None
-    for attempt in range(1, 4):
+    for attempt in range(1, 6):
         if attempt > 1:
             log.warning("download %s: tentativo %d dopo zip vuoto", collection, attempt)
-            time.sleep(10 * attempt)
+            time.sleep(15 * attempt)
             # rigenera la Location: la precedente puo' essere scaduta
             loc = None
             r1 = subprocess.run(
@@ -117,17 +118,30 @@ def download_collection(collection, version='V'):
                 last_err = f"nessuna Location al retry {attempt} (curl exit {r1.returncode})"
                 continue
         r2 = subprocess.run(
-            ['curl', '-4', '-s', '-b', cj, '--max-time', '600', '-o', zip_path, loc],
+            ['curl', '-4', '-s', '-b', cj, '--max-time', '600', '-o', zip_tmp, loc],
             capture_output=True, text=True, timeout=700)
         if r2.returncode != 0:
             last_err = f"step2 download fallito (exit {r2.returncode}): {r2.stderr[:200]}"
             continue
-        if not os.path.exists(zip_path) or os.path.getsize(zip_path) == 0:
+        if not os.path.exists(zip_tmp) or os.path.getsize(zip_tmp) == 0:
             last_err = "zip vuoto"
             continue
+        with open(zip_tmp, 'rb') as fh:
+            magic = fh.read(4)
+        if len(magic) < 4 or not magic.startswith(b'PK'):
+            last_err = f"risposta non-zip ({magic!r})"
+            continue
+        os.replace(zip_tmp, zip_path)
         break
     else:
-        raise RuntimeError(f"step2 download fallito dopo 3 tentativi: {last_err}")
+        # il server Normattiva restituisce spesso zip vuoti (intermittente):
+        # se esiste una zip buona scaricata in passato, riusala (dati eventualmente
+        # piu' vecchi, ma il sync non deve fallire per un problema lato server)
+        if os.path.exists(zip_path) and os.path.getsize(zip_path) >= 22:
+            log.warning("download %s fallito (%s): riuso zip in cache (%d byte)",
+                        collection, last_err, os.path.getsize(zip_path))
+        else:
+            raise RuntimeError(f"step2 download fallito dopo 5 tentativi: {last_err} (nessuna zip in cache)")
     # estrai in dir pulita
     outdir = os.path.join(CACHE, f'{collection}_{version}_x')
     shutil.rmtree(outdir, ignore_errors=True)
