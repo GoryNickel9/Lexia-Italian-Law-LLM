@@ -1,7 +1,13 @@
 {
-  "name": "law-llm-private-italian",
+  "name": "lexia-italian-law-llm",
   "version": "0.1.0",
   "private": true,
+  "description": "Lexia — assistente legale sul diritto italiano: sito Next.js + backend RAG sul corpus normativo di Normattiva",
+  "license": "AGPL-3.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/GoryNickel9/Lexia-Italian-Law-LLM.git"
+  },
   "scripts": {
     "dev": "next dev",
     "build": "next build",
