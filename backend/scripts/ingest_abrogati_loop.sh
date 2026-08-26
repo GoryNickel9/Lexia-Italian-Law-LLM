@@ -7,7 +7,9 @@ set -u
 SRC="/opt/hermes-legal/cache/Atti normativi abrogati (in originale)_O_x"
 LOG="/opt/hermes-legal/logs/abrogati_ingest_loop.log"
 export LEGAL_DB_HOST=127.0.0.1 LEGAL_DB_PORT=5432 LEGAL_DB_NAME=hermes_legal
-export LEGAL_DB_USER=hermes_legal_app LEGAL_DB_PASSWORD=REDACTED
+export LEGAL_DB_USER=hermes_legal_app
+# Password solo dall'ambiente (nessun segreto nel repo): la esporta il cron.
+: "${LEGAL_DB_PASSWORD:?LEGAL_DB_PASSWORD non impostata}"
 export LEGAL_EMBED_MODEL=/opt/hermes-legal/models/multilingual-minilm
 cd /opt/hermes-legal/scripts || exit 9
 
