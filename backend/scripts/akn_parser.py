@@ -18,9 +18,20 @@ A = '{http://docs.oasis-open.org/legaldocml/ns/akn/3.0}'
 # ---------------------------------------------------------------------------
 # Metadati dell'atto: FRBR (URN, date, tipo), document type (tipo provv.)
 # ---------------------------------------------------------------------------
+_ABROG_MARKER = re.compile(r'\(\(\s*ARTICOLO\s+ABROGATO\s+((?:DALLA|DAL)\s+[^)]*?)\s*\)\)', re.I | re.S)
+_ABROG_MARKER_BARE = re.compile(r'\(\(\s*ARTICOLO\s+ABROGATO\s*\)\)', re.I)
+
+def _preserve_abrogation(t):
+    """I marcatori di abrogazione '((ARTICOLO ABROGATO DAL ...))' non devono
+    essere distrutti dallo strip generico delle parentesi: diventano testo
+    leggibile (lo strip successivo li rende 'Articolo abrogato DAL ...')."""
+    t = _ABROG_MARKER.sub(r'Articolo abrogato (\1)', t)
+    return _ABROG_MARKER_BARE.sub('Articolo abrogato', t)
+
 def _clean(text):
     t = htmlmod.unescape(text)
     t = t.replace('\ufeff', '')
+    t = _preserve_abrogation(t)
     t = re.sub(r'\(\s*(.*?)\s*\)', r'\1', t)          # ((...)) -> testo; attenzione alle parentesi di heading
     return re.sub(r'[ \t]+', ' ', t)
 
@@ -73,7 +84,7 @@ def extract_act_meta(root):
 # ---------------------------------------------------------------------------
 # Estrazione articoli
 # ---------------------------------------------------------------------------
-_ART_RE = re.compile(r'(?:^|\s)(Art\.?\s?[0-9]+(?:-[a-z]+)?)\b\s*\.?\s*(?:\(([^)]*)\))?\s*(.*)', re.S)
+_ART_RE = re.compile(r'(?:^|\s)(Art\.?\s?[0-9]+(?:-[a-z]+)?)\b\s*\.?\s*(?:\((?!\()([^)]*)\))?\s*(.*)', re.S)
 _SUB_RE = re.compile(r'^\s*([0-9]+(?:-[a-z]+)?|[a-z]?)\)\s+', re.M)
 
 def _maybe_decode(data):
@@ -118,6 +129,7 @@ def strip_trailing_padding(data):
 
 def merge_text(el):
     t = htmlmod.unescape(''.join(el.itertext()))
+    t = _preserve_abrogation(t)
     t = re.sub(r'\(\s*(.*?)\s*\)', r'\1', t)      # ((...)) -> testo, once (su singola)
     t = re.sub(r'\s*\(\(\s*(.*?)\s*\)\)\s*', r'\1', t, flags=re.S)
     t = re.sub(r'\(\(|\)\)', '', t)
@@ -151,7 +163,8 @@ def parse_article_elements(root, meta):
             body = merge_text(art)
             if body:
                 out.append({'article_number': num, 'article_heading': heading,
-                            'level': 'article', 'paragraph_number': None, 'letter': None, 'text': body})
+                            'level': 'article', 'paragraph_number': None, 'letter': None, 'text': body,
+                            'status': 'abrogato' if ('ABROGATO' in body.upper() or 'SOPPRESSO' in body.upper()) else None})
                 if eid: seen.add(eid)
             continue
         first = True
@@ -169,7 +182,8 @@ def parse_article_elements(root, meta):
             lvl = 'article' if first else 'paragraph'
             out.append({'article_number': num, 'article_heading': heading,
                         'level': lvl, 'paragraph_number': pnum if not first else None,
-                        'letter': None, 'text': body})
+                        'letter': None, 'text': body,
+                        'status': 'abrogato' if ('ABROGATO' in body.upper() or 'SOPPRESSO' in body.upper()) else None})
             first = False
         if eid: seen.add(eid)
     return out
@@ -199,7 +213,10 @@ def parse_flat_paragraphs(root, meta):
         num = m.group(1)
         num = re.sub(r'^Art\.?\s?', '', num, flags=re.I).strip()
         heading = (m.group(2) or '').strip()
-        body = _clean(m.group(3)).strip()
+        body_raw = m.group(3)
+        abrog = bool(_ABROG_MARKER.search(body_raw) or _ABROG_MARKER_BARE.search(body_raw)
+                     or 'SOPPRESSO' in body_raw.upper())
+        body = _clean(body_raw).strip()
         key = num.lower()
         if key in seen:
             continue
@@ -218,6 +235,7 @@ def parse_flat_paragraphs(root, meta):
                 'paragraph_number': sub['marker'],
                 'letter': None,
                 'text': sub['text'],
+                'status': 'abrogato' if abrog else None,
             }
             first_row = False
             articles.append(article_row)

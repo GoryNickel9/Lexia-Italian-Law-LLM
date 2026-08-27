@@ -22,7 +22,7 @@ DB = {
     'port': int(os.environ.get('LEGAL_DB_PORT', 5432)),
     'dbname': os.environ.get('LEGAL_DB_NAME', 'hermes_legal'),
     'user': os.environ.get('LEGAL_DB_USER', 'hermes_legal_app'),
-    'password': os.environ.get('LEGAL_DB_PASSWORD', 'REDACTED'),
+    'password': os.environ.get('LEGAL_DB_PASSWORD', 'hermes_legal_dev_pw'),
 }
 
 def connect():
@@ -116,7 +116,7 @@ def ingest(xml_path, status='vigente'):
                 (a_id, art['article_number'], art['article_heading'],
                  art['paragraph_number'], art['letter'], art['level'], art['text'],
                  art.get('valid_from'),
-                 status, xml_path, content_hash(art['text'])))
+                 art.get('status') or status, xml_path, content_hash(art['text'])))
             art_id = cur.fetchone()[0]
             # chunk
             metadata = {
