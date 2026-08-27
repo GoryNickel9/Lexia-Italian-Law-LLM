@@ -6,7 +6,13 @@ import { db } from "@/lib/db";
 import { chats, messages, users } from "@/lib/schema";
 import { computeCostMillicents, getTokenPricing } from "@/lib/settings";
 import { hermesModel, SYSTEM_PROMPT } from "@/lib/hermes";
-import { formatLegalContext, legalUnavailableResponse, searchLocalCorpus } from "@/lib/legal";
+import {
+  formatLegalContext,
+  legalUnavailableResponse,
+  searchLocalCorpus,
+  verifyCitationsInText,
+} from "@/lib/legal";
+import type { VerificationItem } from "@/lib/legal";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -92,6 +98,18 @@ export async function POST(request: Request, { params }: { params: Promise<{ cha
     return legalUnavailableResponse(error);
   }
 
+  // Flusso "LLM prima, database dopo": la risposta usa la conoscenza giuridica
+  // dell'LLM con citazioni esplicite; al termine dello stream le citazioni
+  // vengono verificate una per una nel corpus (anti-allucinazione) e il
+  // risultato viene appeso al messaggio salvato + inviato alla UI come
+  // data-part. La promise è condivisa tra onEnd e lo stream UI: una sola
+  // tornata di chiamate al legal-api per entrambi.
+  let verificationPromise: Promise<{ items: VerificationItem[]; block: string }> | null = null;
+  const verifyOrThrow = (text: string) => {
+    verificationPromise ??= verifyCitationsInText(text);
+    return verificationPromise;
+  };
+
   const result = streamText({
     model: hermesModel,
     system: `${SYSTEM_PROMPT}\n\n${legalContext}`,
@@ -102,10 +120,23 @@ export async function POST(request: Request, { params }: { params: Promise<{ cha
         const outputTokens = usage?.outputTokens ?? 0;
         const costMillicents = computeCostMillicents(inputTokens, outputTokens, pricing);
 
+        // Verifica citazioni nel corpus e append del blocco al messaggio
+        // salvato (in storico la verifica è parte del testo, così è visibile
+        // anche al reload; in live arriva come data-part dallo stream).
+        let content = text;
+        try {
+          const verification = await verifyOrThrow(text);
+          if (verification?.items.length) {
+            content = `${text}\n\n${verification.block}`;
+          }
+        } catch (error) {
+          console.error("Verifica citazioni fallita:", error);
+        }
+
         await db.insert(messages).values({
           chatId,
           role: "assistant",
-          content: text,
+          content,
           inputTokens,
           outputTokens,
           costMillicents,
@@ -152,6 +183,18 @@ export async function POST(request: Request, { params }: { params: Promise<{ cha
             costMillicents: computeCostMillicents(inputTokens, outputTokens, pricing),
           },
         });
+        // Verifica citazioni nel corpus (flusso LLM-prima/DB-dopo): la promise
+        // è la stessa di onEnd, quindi una sola tornata di chiamate. La UI
+        // mostra il blocco sotto la risposta via data-part.
+        try {
+          const text = await result.text;
+          const verification = await verifyOrThrow(text);
+          if (verification?.items.length) {
+            writer.write({ type: "data-verification", data: verification.items });
+          }
+        } catch {
+          // verifica best-effort: la risposta resta comunque valida
+        }
       } catch {
         // se l'usage non è disponibile la chat mostra solo la risposta
       }

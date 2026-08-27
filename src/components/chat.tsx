@@ -20,6 +20,14 @@ type TokenUsage = {
   costMillicents?: number;
 };
 
+type VerificationItem = {
+  citation: string;
+  found: boolean;
+  status?: string;
+  title?: string;
+  note?: string;
+};
+
 // Messaggio scritto nella schermata "nuova chat": viene inviato
 // automaticamente appena questa pagina viene aperta.
 const PENDING_MESSAGE_KEY = "lexia:pending-message";
@@ -47,6 +55,11 @@ export function Chat({
   // al termine di ogni generazione (chiave: id del messaggio assistente).
   // Quello delle risposte storiche arriva invece dal database.
   const [liveUsages, setLiveUsages] = useState<Record<string, TokenUsage>>({});
+  // Verifica delle citazioni nel corpus, arrivata dallo stream al termine di
+  // ogni generazione (chiave: id del messaggio assistente)
+  const [liveVerifications, setLiveVerifications] = useState<
+    Record<string, VerificationItem[]>
+  >({});
 
   const { messages, sendMessage, status, error, stop } = useChat({
     id: chatId,
@@ -60,6 +73,14 @@ export function Chat({
           .find((m) => m.role === "assistant");
         if (lastAssistant) {
           setLiveUsages((prev) => ({ ...prev, [lastAssistant.id]: usage }));
+        }
+      } else if (part.type === "data-verification") {
+        const items = part.data as VerificationItem[];
+        const lastAssistant = [...messagesRef.current]
+          .reverse()
+          .find((m) => m.role === "assistant");
+        if (lastAssistant) {
+          setLiveVerifications((prev) => ({ ...prev, [lastAssistant.id]: items }));
         }
       }
     },
@@ -180,6 +201,24 @@ export function Chat({
                           ` · Costo: ${formatEuroFromMillicents(usage.costMillicents)}`}
                       </p>
                     )}
+                    {liveVerifications[message.id]?.length ? (
+                      <div className="mt-1.5 border-t border-line pt-1.5 text-[11px] leading-relaxed text-muted">
+                        <p className="font-medium">Verifica nel corpus Hermes Legal</p>
+                        {liveVerifications[message.id].map((v, i) => (
+                          <p key={i}>
+                            {v.found
+                              ? v.status === "abrogato"
+                                ? "⚠️"
+                                : "✅"
+                              : "❌"}{" "}
+                            {v.citation} —{" "}
+                            {v.found
+                              ? `${v.status ?? "vigente"}${v.title ? ` (${v.title})` : ""}`
+                              : (v.note ?? "non verificata")}
+                          </p>
+                        ))}
+                      </div>
+                    ) : null}
                   </div>
                 </div>
               );
