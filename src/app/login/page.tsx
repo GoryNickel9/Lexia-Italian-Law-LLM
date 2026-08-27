@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import { auth } from "@/lib/auth";
 import { AuthForm } from "@/components/auth-form";
+import { LegalLinks } from "@/components/legal-links";
 import { ThemeToggle } from "@/components/theme-toggle";
 
 export default async function LoginPage({
@@ -43,6 +44,8 @@ export default async function LoginPage({
             Registrati
           </Link>
         </p>
+
+        <LegalLinks className="mt-8" />
       </div>
     </main>
   );

@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import { auth } from "@/lib/auth";
 import { AuthForm } from "@/components/auth-form";
+import { LegalLinks } from "@/components/legal-links";
 import { ThemeToggle } from "@/components/theme-toggle";
 
 export default async function RegisterPage() {
@@ -31,6 +32,20 @@ export default async function RegisterPage() {
             Accedi
           </Link>
         </p>
+
+        <p className="mt-6 text-center text-xs text-muted">
+          Creando un account accetti i{" "}
+          <Link href="/termini-di-servizio" className="underline underline-offset-2">
+            Termini di servizio
+          </Link>{" "}
+          e la{" "}
+          <Link href="/privacy-policy" className="underline underline-offset-2">
+            Privacy Policy
+          </Link>
+          .
+        </p>
+
+        <LegalLinks className="mt-4" />
       </div>
     </main>
   );

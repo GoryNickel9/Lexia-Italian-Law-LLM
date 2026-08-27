@@ -134,3 +134,22 @@ body {
   margin: 0.6em 0;
   color: var(--muted);
 }
+
+/* Pagine legali (Privacy, Cookie, Termini): titoli di sezione più marcati
+   rispetto al testo markdown delle risposte, con più respiro verticale. */
+.legal .markdown h2 {
+  font-size: 1.15em;
+  margin: 1.9em 0 0.6em;
+}
+
+.legal .markdown h2:first-child {
+  margin-top: 0;
+}
+
+.legal .markdown p {
+  margin: 0.7em 0;
+}
+
+.legal .markdown li {
+  margin: 0.35em 0;
+}
