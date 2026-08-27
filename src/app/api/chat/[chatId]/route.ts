@@ -112,6 +112,9 @@ export async function POST(request: Request, { params }: { params: Promise<{ cha
 
   const result = streamText({
     model: hermesModel,
+    // Cap di sicurezza sulla lunghezza: risposte oltre ~800 token diventano
+    // lente e costose senza aggiungere valore per l'utente finale.
+    maxOutputTokens: 800,
     system: `${SYSTEM_PROMPT}\n\n${legalContext}`,
     messages: history.map((m) => ({ role: m.role, content: m.content })),
     onEnd: async ({ text, usage }) => {
