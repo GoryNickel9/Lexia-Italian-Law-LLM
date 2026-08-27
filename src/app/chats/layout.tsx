@@ -44,7 +44,10 @@ export default async function ChatsLayout({ children }: { children: React.ReactN
           updatedAt: c.updatedAt.toISOString(),
         }))}
       />
-      <div className="flex min-w-0 flex-1 flex-col">{children}</div>
+      {/* min-h-0: senza, su mobile (colonna) il wrapper cresce fino all'altezza
+          del contenuto della chat e il progenitore con overflow-hidden lo taglia,
+          disattivando lo scroll della conversazione */}
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">{children}</div>
     </div>
   );
 }

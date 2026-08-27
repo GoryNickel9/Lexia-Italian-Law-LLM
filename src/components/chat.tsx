@@ -39,6 +39,8 @@ export function Chat({
 }) {
   const router = useRouter();
   const bottomRef = useRef<HTMLDivElement>(null);
+  const scrollAreaRef = useRef<HTMLDivElement>(null);
+  const prevMessageCountRef = useRef(0);
   const [input, setInput] = useState("");
   const autoSentRef = useRef(false);
   // Consumo delle risposte generate in questa sessione, arrivato dallo stream
@@ -76,8 +78,18 @@ export function Chat({
 
   const busy = status === "submitted" || status === "streaming";
 
+  // Auto-scroll a fondo pagina, ma solo se l'utente non è risalito: durante lo
+  // streaming un nuovo messaggio (o risposta corta) porta sempre in fondo,
+  // i chunk di una generazione in corso solo quando si è già vicini al fondo,
+  // altrimenti lo scroll forzato contrasta il dito/touch dell'utente.
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+    const el = scrollAreaRef.current;
+    const nearBottom =
+      !el || el.scrollHeight - el.scrollTop - el.clientHeight < 160;
+    if (messages.length !== prevMessageCountRef.current || nearBottom) {
+      bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+    }
+    prevMessageCountRef.current = messages.length;
   }, [messages]);
 
   // Invio automatico del messaggio scritto nella schermata "nuova chat"
@@ -118,7 +130,7 @@ export function Chat({
         <PeakBadge />
       </header>
 
-      <div className="min-h-0 flex-1 overflow-y-auto py-6">
+      <div ref={scrollAreaRef} className="min-h-0 flex-1 overflow-y-auto py-6">
         {messages.length === 0 ? (
           <div className="flex h-full flex-col items-center justify-center rounded-2xl border border-dashed border-line p-10 text-center">
             <h2 className="text-lg font-semibold">Lexia</h2>
