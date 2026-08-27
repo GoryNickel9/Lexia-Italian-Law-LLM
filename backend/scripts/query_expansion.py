@@ -52,6 +52,9 @@ EXPANSIONS = [
      "violenza minaccia costringere contro la volontà"),
     ({"falso", "falsificare", "falsificazione", "contraffazione", "falsificato"},
      "falso falsificazione contraffazione"),
+    ({"firma", "firmare", "firmato", "firmata", "firmati", "sottoscrizione",
+      "sottoscrizioni", "sottoscrivere", "sottoscritto", "sottoscritta"},
+     "firma sottoscrizione scrittura privata falsita' falso documento"),
     ({"bancarotta", "fallimento", "fallito", "fallita"},
      "bancarotta fallimento impresa"),
     ({"truffa", "truffare", "truffato", "truffata", "raggiro"},
@@ -135,6 +138,9 @@ TEMA_ARTICOLI = {
     ("stradale", "stradali"): ["589-bis"],
     ("locazione", "affitto", "affittare", "affittuario", "conduttore"): ["1571", "1575", "1587", "1591"],
     ("separazione", "separarsi", "divorzio", "divorziare"): ["156"],
+    ("firma", "firmare", "firmato", "firmata", "sottoscrizione", "sottoscritto",
+     "falso", "falsificazione", "contraffazione", "falsita", "falsità"):
+        ["476", "477", "478", "482", "485", "486", "488", "491-bis"],
 }
 
 

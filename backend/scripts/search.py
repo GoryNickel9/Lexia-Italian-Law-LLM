@@ -17,7 +17,7 @@ DB = {
     'port': int(os.environ.get('LEGAL_DB_PORT', 5432)),
     'dbname': os.environ.get('LEGAL_DB_NAME', 'hermes_legal'),
     'user': os.environ.get('LEGAL_DB_USER', 'hermes_legal_app'),
-    'password': os.environ.get('LEGAL_DB_PASSWORD', 'REDACTED'),
+    'password': os.environ.get('LEGAL_DB_PASSWORD', 'hermes_legal_dev_pw'),
 }
 def connect(): return psycopg2.connect(**DB)
 
@@ -135,6 +135,7 @@ def semantic_search(query, jurisdiction=None, max_results=10, ref_date=None, rer
             JOIN legal_articles a ON a.id = c.article_id
             JOIN legal_acts act ON act.id = c.act_id
             WHERE c.embedding IS NOT NULL
+              AND act.status <> 'abrogato'
               AND (a.valid_from IS NULL OR a.valid_from <= %s)
               AND (a.valid_to IS NULL OR a.valid_to >= %s)
         """
@@ -161,6 +162,7 @@ def semantic_search(query, jurisdiction=None, max_results=10, ref_date=None, rer
                 JOIN legal_articles a ON a.id = c.article_id
                 JOIN legal_acts act ON act.id = c.act_id
                 WHERE c.embedding IS NOT NULL
+                  AND act.status <> 'abrogato'
                   AND (a.valid_from IS NULL OR a.valid_from <= %s)
                   AND (a.valid_to IS NULL OR a.valid_to >= %s)
                   AND a.search_tsv @@ to_tsquery('simple', %s)
