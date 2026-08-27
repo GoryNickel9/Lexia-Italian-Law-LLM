@@ -165,6 +165,7 @@ export type VerificationItem = {
   actType?: string;
   actDate?: string;
   note?: string;
+  incipit?: string;
 };
 
 const URN_RE = /urn:nir:stato:[a-z0-9.\-]+:\d{4}-\d{2}-\d{2};[0-9a-z\-]+/gi;
@@ -289,6 +290,11 @@ export async function verifyCitationsInText(
             sameNum[0];
           if (hit) {
             const hitText = String(hit.text ?? "").trim();
+            // incipit del testo verificato (~100 caratteri): il blocco mostra
+            // COSA dice la norma, così ogni errore di contenuto del modello
+            // (es. 544-bis "uccisione" invece di "lesioni") è visibile subito.
+            const cleanIncipit = (t: string) =>
+              t.length > 100 ? `${t.slice(0, 97).replace(/\s+$/, "")}…` : t;
             return {
               citation,
               found: true,
@@ -296,6 +302,10 @@ export async function verifyCitationsInText(
               title: hit.title ? String(hit.title) : undefined,
               actType: hit.act_type ? String(hit.act_type) : undefined,
               actDate: hit.act_date ? String(hit.act_date) : undefined,
+              incipit:
+                hit.status !== "abrogato" && hitText
+                  ? cleanIncipit(hitText)
+                  : undefined,
               // per gli articoli abrogati la nota riporta il testo dell'articolo
               // (es. "Articolo abrogato dal D.Lgs. 15 gennaio 2016, n. 7")
               note:

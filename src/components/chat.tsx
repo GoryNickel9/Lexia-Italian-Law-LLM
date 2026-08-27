@@ -26,6 +26,7 @@ type VerificationItem = {
   status?: string;
   title?: string;
   note?: string;
+  incipit?: string;
 };
 
 // Messaggio scritto nella schermata "nuova chat": viene inviato
@@ -213,7 +214,7 @@ export function Chat({
                               : "❌"}{" "}
                             {v.citation} —{" "}
                             {v.found
-                              ? `${v.status ?? "vigente"}${v.title ? ` (${v.title})` : ""}${v.note ? ` — ${v.note}` : ""}`
+                              ? `${v.status ?? "vigente"}${v.title ? ` (${v.title})` : ""}${v.incipit ? ` — "${v.incipit}"` : ""}${v.note ? ` — ${v.note}` : ""}`
                               : (v.note ?? "non verificata")}
                           </p>
                         ))}

@@ -21,6 +21,15 @@ A = '{http://docs.oasis-open.org/legaldocml/ns/akn/3.0}'
 _ABROG_MARKER = re.compile(r'\(\(\s*ARTICOLO\s+ABROGATO\s+((?:DALLA|DAL)\s+[^)]*?)\s*\)\)', re.I | re.S)
 _ABROG_MARKER_BARE = re.compile(r'\(\(\s*ARTICOLO\s+ABROGATO\s*\)\)', re.I)
 
+# SOPPRESSO a livello di ARTICOLO ("DA RITENERSI SOPPRESSO" art. 21 c.p.,
+# "ARTICOLO SOPPRESSO DAL ..."): NON deve scattare per i commi soppressi
+# ("1° NUMERO SOPPRESSO DALLA L. 26 MARZO 2001, N. 128" = art. 625 c.p.,
+# che resta vigente e veniva marcato abrogato per errore).
+_SOPPRESSO_MARKER = re.compile(
+    r'\b(?:DA\s+RITENERSI\s+SOPPRESSO|ARTICOLO\s+SOPPRESSO(?:\s+(?:DAL|DALLA))?)\b',
+    re.I)
+
+
 def _preserve_abrogation(t):
     """I marcatori di abrogazione '((ARTICOLO ABROGATO DAL ...))' non devono
     essere distrutti dallo strip generico delle parentesi: diventano testo
@@ -164,7 +173,7 @@ def parse_article_elements(root, meta):
             if body:
                 out.append({'article_number': num, 'article_heading': heading,
                             'level': 'article', 'paragraph_number': None, 'letter': None, 'text': body,
-                            'status': 'abrogato' if ('ABROGATO' in body.upper() or 'SOPPRESSO' in body.upper()) else None})
+                            'status': 'abrogato' if ('ABROGATO' in body.upper() or _SOPPRESSO_MARKER.search(body)) else None})
                 if eid: seen.add(eid)
             continue
         first = True
@@ -183,7 +192,7 @@ def parse_article_elements(root, meta):
             out.append({'article_number': num, 'article_heading': heading,
                         'level': lvl, 'paragraph_number': pnum if not first else None,
                         'letter': None, 'text': body,
-                        'status': 'abrogato' if ('ABROGATO' in body.upper() or 'SOPPRESSO' in body.upper()) else None})
+                        'status': 'abrogato' if ('ABROGATO' in body.upper() or _SOPPRESSO_MARKER.search(body)) else None})
             first = False
         if eid: seen.add(eid)
     return out
@@ -215,7 +224,7 @@ def parse_flat_paragraphs(root, meta):
         heading = (m.group(2) or '').strip()
         body_raw = m.group(3)
         abrog = bool(_ABROG_MARKER.search(body_raw) or _ABROG_MARKER_BARE.search(body_raw)
-                     or 'SOPPRESSO' in body_raw.upper())
+                     or _SOPPRESSO_MARKER.search(body_raw))
         body = _clean(body_raw).strip()
         key = num.lower()
         if key in seen:
