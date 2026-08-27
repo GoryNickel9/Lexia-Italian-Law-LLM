@@ -139,8 +139,22 @@ TEMA_ARTICOLI = {
     ("locazione", "affitto", "affittare", "affittuario", "conduttore"): ["1571", "1575", "1587", "1591"],
     ("separazione", "separarsi", "divorzio", "divorziare"): ["156"],
     ("firma", "firmare", "firmato", "firmata", "sottoscrizione", "sottoscritto",
-     "falso", "falsificazione", "contraffazione", "falsita", "falsità"):
-        ["476", "477", "478", "482", "485", "486", "488", "491-bis"],
+     "falso", "falsificazione", "contraffazione", "falsita", "falsità",
+     "scrittura privata", "falso documentale"):
+        ["476", "477", "478", "482", "483", "485", "486", "488", "491-bis",
+         "494", "624", "640", "646"],
+}
+
+# Atti che entrano SEMPRE nei candidati quando il tema matcha (oltre ai numeri
+# d'articolo): es. la legge di depenalizzazione (D.Lgs. 7/2016, sanzione
+# pecuniaria civile per il falso in scrittura privata) e il D.P.R. 445/2000
+# (dichiarazioni sostitutive/mendaci).
+THEME_ACTS = {
+    ("firma", "firmare", "firmato", "firmata", "sottoscrizione", "sottoscritto",
+     "falso", "falsificazione", "contraffazione", "falsita", "falsità",
+     "scrittura privata", "falso documentale"):
+        ["urn:nir:stato:decreto.legislativo:2016-01-15;7",
+         "urn:nir:stato:decreto.del.presidente.della.repubblica:2000-12-28;445"],
 }
 
 

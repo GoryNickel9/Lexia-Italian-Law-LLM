@@ -218,11 +218,18 @@ def semantic_search(query, jurisdiction=None, max_results=10, ref_date=None, rer
                               "WHEN act.urn LIKE '%%regio.decreto:1930-10-19;1398%%' THEN 1 "
                               "WHEN act.urn LIKE '%%regio.decreto:1942-03-16;262%%' THEN 1 "
                               "WHEN act.urn LIKE '%%regio.decreto%%' THEN 2 ELSE 3 END")
+            # il c.c. entra nella garanzia solo se la query lo cita esplicitamente:
+            # altrimenti i suoi articoli omonimi (es. c.c. 476-488 sulle
+            # successioni) affollano il tier esatto e tagliano fuori il c.p.
+            cc_cited = bool(re.search(r'\bc\.c\.\b|codice civile', query, re.I))
+            cc_cond = (" OR act.urn LIKE '%%regio.decreto:1942-03-16;262%%'" if cc_cited else "")
             code_cond = ("(act.urn LIKE '%%costituzione%%' OR "
-                         "act.urn LIKE '%%regio.decreto:1930-10-19;1398%%' OR "
-                         "act.urn LIKE '%%regio.decreto:1942-03-16;262%%')")
+                         "act.urn LIKE '%%regio.decreto:1930-10-19;1398%%'"
+                         + cc_cond + ")")
+            cc_excl = (" AND act.urn NOT LIKE '%%regio.decreto:1942-03-16;262%%'"
+                       if not cc_cited else "")
             cur.execute(
-                base_q + " AND a.article_number = ANY(%s)"
+                base_q + cc_excl + " AND a.article_number = ANY(%s)"
                          f" ORDER BY ({rank_expr}) DESC, code_prio, act.title LIMIT 100",
                 base_params + [inj] + kw_params)
             exact = {r['id']: r for r in cur.fetchall()}
@@ -232,6 +239,26 @@ def semantic_search(query, jurisdiction=None, max_results=10, ref_date=None, rer
                 base_params + [inj] + kw_params)
             for r in cur.fetchall():
                 exact.setdefault(r['id'], r)
+            # garanzia atti-tema (THEME_ACTS): atti rilevanti per il tema entrano
+            # sempre (es. D.Lgs. 7/2016 con la sanzione pecuniaria civile per il
+            # falso in scrittura privata, D.P.R. 445/2000 per le dichiarazioni
+            # mendaci) anche se i loro articoli non matchano le keyword.
+            from query_expansion import THEME_ACTS
+            tema_act_urns = []
+            for syns, urns in THEME_ACTS.items():
+                if set(syns) & toks:
+                    tema_act_urns.extend(urns)
+            if tema_act_urns:
+                kw_pat = [f"%{w}%" for w in kw_sql]
+                cur.execute(
+                    base_q + " AND act.urn = ANY(%s)"
+                             " AND (a.text ILIKE ANY(%s) OR COALESCE(a.article_heading,'') ILIKE ANY(%s)"
+                             " OR act.title ILIKE ANY(%s))"
+                             f" ORDER BY ({rank_expr}) DESC, a.article_number LIMIT 30",
+                    base_params + [tema_act_urns, kw_pat, kw_pat, kw_pat] + kw_params)
+                for r in cur.fetchall():
+                    r['_prio0'] = True  # atti-tema: priorità massima nel sort finale
+                    exact.setdefault(r['id'], r)
             by_id = {r['id']: r for r in out}
             for rid, row in exact.items():
                 exact_ids.add(rid)
@@ -288,12 +315,20 @@ def semantic_search(query, jurisdiction=None, max_results=10, ref_date=None, rer
         # "costituzione" -> art. 3 Cost. anche se il testo usa "eguali"), poi
         # per distanza (priorita' codici via offset code_prio).
         kw_lower = [w for w in kw if w]
+
+        def _exact_group(r: dict) -> int:
+            # 0 = codici (Costituzione, c.p., c.c.), 1 = atti-tema (D.Lgs. 7/2016,
+            # D.P.R. 445/2000), 2 = altri atti. I codici restano la fonte primaria;
+            # gli atti-tema portano le norme di raccordo (sanzione pecuniaria,
+            # dichiarazioni mendaci) prima del rumore degli atti minori.
+            if int(r.get('code_prio') or 3) <= 1:
+                return 0
+            if r.get('_prio0'):
+                return 1
+            return 2
+
         exact_rows.sort(key=lambda r: (
-            # i codici (Costituzione, c.p., c.c.) SEMPRE prima: altrimenti gli
-            # articoli omonimi di atti minori (DPR mense, D.Lgs...) con keyword
-            # nel testo affollano il tier esatto e tagliano fuori il c.p.
-            # (es. art. 485 abrogato che non matcha "firma falsa").
-            0 if int(r.get('code_prio') or 3) <= 1 else 1,
+            _exact_group(r),
             -sum(1 for w in kw_lower if w in (r['text'] or '').lower()),
             -3 * sum(1 for w in kw_lower if w in (r.get('title') or '').lower()),
             int(r.get('code_prio') or 3),

@@ -39,7 +39,10 @@ export async function searchLocalCorpus(query: string, referenceDate?: string): 
     body: JSON.stringify({
       query,
       reference_date: referenceDate ?? new Date().toISOString().slice(0, 10),
-      max_results: 8,
+      // 15 risultati: il contesto copre la falsità (incl. abrogati), i reati
+      // alternativi (truffa, furto, sostituzione di persona) e la legge di
+      // depenalizzazione (D.Lgs. 7/2016) per le domande su pene e sanzioni.
+      max_results: 15,
     }),
     cache: "no-store",
     signal: AbortSignal.timeout(12_000),
@@ -161,49 +164,56 @@ export async function verifyCitationsInText(
 
   // 2) citazioni "art. N [atto]" -> /search (numero iniettato nel tier esatto)
   const seen = new Set<string>();
+  const artChecks: Array<Promise<VerificationItem | null>> = [];
   for (const m of text.matchAll(ART_RE)) {
     const num = m[1].toLowerCase();
     if (seen.has(num)) continue;
     seen.add(num);
     const hint = actHintAfter(text, m.index ?? 0);
     const citation = hint ? `art. ${num} ${hint}` : `art. ${num}`;
-    try {
-      const resp = await fetch(`${url}/search`, {
-        method: "POST",
-        headers,
-        body: JSON.stringify({ query: citation, max_results: 8 }),
-      });
-      if (resp.ok) {
-        const data = (await resp.json()) as { results?: Array<Record<string, unknown>> };
-        const hit = (data.results ?? []).find(
-          (r) => String(r.article_number ?? "").toLowerCase() === num,
-        );
-        if (hit) {
-          const hitText = String(hit.text ?? "").trim();
-          items.push({
-            citation,
-            found: true,
-            status: hit.status ? String(hit.status) : "vigente",
-            title: hit.title ? String(hit.title) : undefined,
-            actType: hit.act_type ? String(hit.act_type) : undefined,
-            actDate: hit.act_date ? String(hit.act_date) : undefined,
-            // per gli articoli abrogati la nota riporta il testo dell'articolo
-            // (es. "Articolo abrogato dal D.Lgs. 15 gennaio 2016, n. 7")
-            note:
-              hit.status === "abrogato" && hitText
-                ? hitText.length > 110
-                  ? `${hitText.slice(0, 107)}…`
-                  : hitText
-                : undefined,
+    artChecks.push(
+      (async (): Promise<VerificationItem | null> => {
+        try {
+          const resp = await fetch(`${url}/search`, {
+            method: "POST",
+            headers,
+            body: JSON.stringify({ query: citation, max_results: 8 }),
           });
-        } else {
-          items.push({ citation, found: false, note: "citazione non trovata nel corpus" });
+          if (!resp.ok) return null;
+          const data = (await resp.json()) as { results?: Array<Record<string, unknown>> };
+          const hit = (data.results ?? []).find(
+            (r) => String(r.article_number ?? "").toLowerCase() === num,
+          );
+          if (hit) {
+            const hitText = String(hit.text ?? "").trim();
+            return {
+              citation,
+              found: true,
+              status: hit.status ? String(hit.status) : "vigente",
+              title: hit.title ? String(hit.title) : undefined,
+              actType: hit.act_type ? String(hit.act_type) : undefined,
+              actDate: hit.act_date ? String(hit.act_date) : undefined,
+              // per gli articoli abrogati la nota riporta il testo dell'articolo
+              // (es. "Articolo abrogato dal D.Lgs. 15 gennaio 2016, n. 7")
+              note:
+                hit.status === "abrogato" && hitText
+                  ? hitText.length > 110
+                    ? `${hitText.slice(0, 107)}…`
+                    : hitText
+                  : undefined,
+            };
+          }
+          return { citation, found: false, note: "citazione non trovata nel corpus" };
+        } catch {
+          return null; // best effort
         }
-      }
-    } catch {
-      // best effort
-    }
-    if (items.length >= 14) break;
+      })(),
+    );
+    if (artChecks.length >= 14) break;
+  }
+  const artResults = await Promise.all(artChecks);
+  for (const item of artResults) {
+    if (item) items.push(item);
   }
 
   const block = items.length
