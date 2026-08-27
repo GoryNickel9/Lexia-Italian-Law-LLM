@@ -54,7 +54,7 @@ EXPANSIONS = [
      "falso falsificazione contraffazione"),
     ({"firma", "firmare", "firmato", "firmata", "firmati", "sottoscrizione",
       "sottoscrizioni", "sottoscrivere", "sottoscritto", "sottoscritta"},
-     "firma sottoscrizione scrittura privata falsita' falso documento"),
+     "firma sottoscrizione scrittura privata falsita' falso documento sanzione pecuniaria civile depenalizzato abrogato"),
     ({"bancarotta", "fallimento", "fallito", "fallita"},
      "bancarotta fallimento impresa"),
     ({"truffa", "truffare", "truffato", "truffata", "raggiro"},

@@ -208,11 +208,30 @@ def semantic_search(query, jurisdiction=None, max_results=10, ref_date=None, rer
                 f"+ CASE WHEN act.title ILIKE %s THEN 3 ELSE 0 END)"
                 for _ in kw_sql) or "0"
             kw_params = [f"%{w}%" for w in kw_sql for _ in (0, 1, 2)]
+            # i codici (Costituzione, c.p., c.c.) vengono garantiti a parte:
+            # una seconda query li include SEMPRE (con i numeri iniettati)
+            # anche se il loro testo non contiene le keyword della domanda
+            # (es. art. 485 abrogato: "Articolo abrogato DAL D.LGS. ..." non
+            # matcha "firma falsa" ma è proprio la norma da citare).
+            # Alias SQL non usabili dentro espressioni in ORDER BY: CASE ripetuta.
+            code_prio_case = ("CASE WHEN act.urn LIKE '%%costituzione%%' THEN 0 "
+                              "WHEN act.urn LIKE '%%regio.decreto:1930-10-19;1398%%' THEN 1 "
+                              "WHEN act.urn LIKE '%%regio.decreto:1942-03-16;262%%' THEN 1 "
+                              "WHEN act.urn LIKE '%%regio.decreto%%' THEN 2 ELSE 3 END")
+            code_cond = ("(act.urn LIKE '%%costituzione%%' OR "
+                         "act.urn LIKE '%%regio.decreto:1930-10-19;1398%%' OR "
+                         "act.urn LIKE '%%regio.decreto:1942-03-16;262%%')")
             cur.execute(
                 base_q + " AND a.article_number = ANY(%s)"
                          f" ORDER BY ({rank_expr}) DESC, code_prio, act.title LIMIT 100",
                 base_params + [inj] + kw_params)
             exact = {r['id']: r for r in cur.fetchall()}
+            cur.execute(
+                base_q + f" AND a.article_number = ANY(%s) AND {code_cond}"
+                         f" ORDER BY ({rank_expr}) DESC, act.title LIMIT 100",
+                base_params + [inj] + kw_params)
+            for r in cur.fetchall():
+                exact.setdefault(r['id'], r)
             by_id = {r['id']: r for r in out}
             for rid, row in exact.items():
                 exact_ids.add(rid)
@@ -270,8 +289,14 @@ def semantic_search(query, jurisdiction=None, max_results=10, ref_date=None, rer
         # per distanza (priorita' codici via offset code_prio).
         kw_lower = [w for w in kw if w]
         exact_rows.sort(key=lambda r: (
+            # i codici (Costituzione, c.p., c.c.) SEMPRE prima: altrimenti gli
+            # articoli omonimi di atti minori (DPR mense, D.Lgs...) con keyword
+            # nel testo affollano il tier esatto e tagliano fuori il c.p.
+            # (es. art. 485 abrogato che non matcha "firma falsa").
+            0 if int(r.get('code_prio') or 3) <= 1 else 1,
             -sum(1 for w in kw_lower if w in (r['text'] or '').lower()),
             -3 * sum(1 for w in kw_lower if w in (r.get('title') or '').lower()),
+            int(r.get('code_prio') or 3),
             float(r.get('distance') if r.get('distance') is not None else 1.0)))
         return (exact_rows + rest_rows)[:max_results]
     finally:
