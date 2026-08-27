@@ -163,10 +163,8 @@ def semantic_search(query, jurisdiction=None, max_results=10, ref_date=None, rer
                 WHERE c.embedding IS NOT NULL
                   AND (a.valid_from IS NULL OR a.valid_from <= %s)
                   AND (a.valid_to IS NULL OR a.valid_to >= %s)
-                  AND to_tsvector('simple', a.text || ' ' || COALESCE(a.article_heading,''))
-                      @@ to_tsquery('simple', %s)
-                ORDER BY ts_rank(to_tsvector('simple', a.text || ' ' || COALESCE(a.article_heading,'')),
-                                 to_tsquery('simple', %s)) DESC
+                  AND a.search_tsv @@ to_tsquery('simple', %s)
+                ORDER BY ts_rank(a.search_tsv, to_tsquery('simple', %s)) DESC
                 LIMIT %s
             """, [ref, ref, fts_query, fts_query, FTS_CANDIDATES])
             fts_order = [r['id'] for r in cur.fetchall()]
