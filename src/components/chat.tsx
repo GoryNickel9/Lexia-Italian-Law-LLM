@@ -213,7 +213,7 @@ export function Chat({
                               : "❌"}{" "}
                             {v.citation} —{" "}
                             {v.found
-                              ? `${v.status ?? "vigente"}${v.title ? ` (${v.title})` : ""}`
+                              ? `${v.status ?? "vigente"}${v.title ? ` (${v.title})` : ""}${v.note ? ` — ${v.note}` : ""}`
                               : (v.note ?? "non verificata")}
                           </p>
                         ))}

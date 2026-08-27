@@ -179,6 +179,7 @@ export async function verifyCitationsInText(
           (r) => String(r.article_number ?? "").toLowerCase() === num,
         );
         if (hit) {
+          const hitText = String(hit.text ?? "").trim();
           items.push({
             citation,
             found: true,
@@ -186,7 +187,14 @@ export async function verifyCitationsInText(
             title: hit.title ? String(hit.title) : undefined,
             actType: hit.act_type ? String(hit.act_type) : undefined,
             actDate: hit.act_date ? String(hit.act_date) : undefined,
-            note: hit.status === "abrogato" ? "abrogato" : undefined,
+            // per gli articoli abrogati la nota riporta il testo dell'articolo
+            // (es. "Articolo abrogato dal D.Lgs. 15 gennaio 2016, n. 7")
+            note:
+              hit.status === "abrogato" && hitText
+                ? hitText.length > 110
+                  ? `${hitText.slice(0, 107)}…`
+                  : hitText
+                : undefined,
           });
         } else {
           items.push({ citation, found: false, note: "citazione non trovata nel corpus" });
@@ -205,7 +213,7 @@ export async function verifyCitationsInText(
         ...items.map((v) => {
           const icon = !v.found ? "❌" : v.status === "abrogato" ? "⚠️" : "✅";
           const statusText = v.found
-            ? `${v.status ?? "vigente"}${v.title ? ` — ${v.title}` : ""}`
+            ? `${v.status ?? "vigente"}${v.title ? ` — ${v.title}` : ""}${v.note ? ` — ${v.note}` : ""}`
             : (v.note ?? "non verificata");
           return `- ${icon} ${v.citation}: ${statusText}`;
         }),
