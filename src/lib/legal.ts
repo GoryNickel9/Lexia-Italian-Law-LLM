@@ -101,16 +101,42 @@ export type VerificationItem = {
 
 const URN_RE = /urn:nir:stato:[a-z0-9.\-]+:\d{4}-\d{2}-\d{2};[0-9a-z\-]+/gi;
 const ART_RE = /\b(?:art\.?|articolo)\s*(\d+[a-z-]*)/gi;
-const ACT_HINT_RE = /\b(c\.p\.|codice penale|c\.c\.|codice civile|d\.lgs\.?|decreto legislativo|legge|l\.|r\.d\.|regio decreto)\b/i;
+const ACT_HINT_RE = /\b(c\.p\.|codice penale|c\.c\.|codice civile|d\.lgs\.?|decreto legislativo|legge|l\.|r\.d\.|regio decreto)/i;
 
 function unique<T>(items: T[]): T[] {
   return [...new Set(items)];
 }
 
-/** Indizio di atto nei ~40 caratteri dopo una citazione "art. N". */
-function actHintAfter(text: string, index: number): string {
-  const m = text.slice(index, index + 40).match(ACT_HINT_RE);
-  return m ? m[1] : "";
+/** Contesto (~80 caratteri) dopo una citazione "art. N": serve al backend per
+ * risolvere l'atto citato per numero+anno (es. "del D.Lgs. n. 7 del 2016")
+ * invece di ripiegare sull'articolo omonimo del codice (c.p. art. 4). */
+function citationContextAfter(text: string, index: number): string {
+  const ctx = text.slice(index, index + 80).replace(/\s+/g, " ").trim();
+  return ctx.replace(/[;.,:]+$/, "");
+}
+
+/** Cross-check atto: l'hit deve appartenere all'atto citato (il qualificatore
+ * "D.Lgs." non deve verificarsi sull'art. 4 del c.p.). */
+function actMatchesHint(r: Record<string, unknown>, hint: string): boolean {
+  const urn = String(r.urn ?? "");
+  const at = String(r.act_type ?? "").toUpperCase();
+  if (/c\.p\.|codice penale/i.test(hint)) {
+    return urn.includes("regio.decreto:1930-10-19;1398");
+  }
+  if (/c\.c\.|codice civile/i.test(hint)) {
+    return urn.includes("regio.decreto:1942-03-16;262");
+  }
+  if (/costituzione/i.test(hint)) return urn.includes("costituzione");
+  if (/d\.lgs\.?|decreto legislativo/i.test(hint)) {
+    return at.includes("DECRETO LEGISLATIVO");
+  }
+  if (/d\.p\.r\.?|decreto del presidente/i.test(hint)) {
+    return at.includes("DEL PRESIDENTE DELLA REPUBBLICA");
+  }
+  if (/d\.l\.|decreto legge/i.test(hint)) return at.includes("DECRETO LEGGE");
+  if (/r\.d\.|regio decreto/i.test(hint)) return at.includes("REGIO DECRETO");
+  if (/legge\b/i.test(hint)) return at.includes("LEGGE");
+  return true;
 }
 
 /**
@@ -162,14 +188,17 @@ export async function verifyCitationsInText(
     }
   }
 
-  // 2) citazioni "art. N [atto]" -> /search (numero iniettato nel tier esatto)
+  // 2) citazioni "art. N [atto]" -> /search (numero iniettato nel tier esatto;
+  //    il contesto dopo la citazione risolve l'atto per numero+anno: "art. 4,
+  //    comma 4, del D.Lgs. n. 7 del 2016" -> D.Lgs. 7/2016, non c.p. art. 4)
   const seen = new Set<string>();
   const artChecks: Array<Promise<VerificationItem | null>> = [];
   for (const m of text.matchAll(ART_RE)) {
     const num = m[1].toLowerCase();
     if (seen.has(num)) continue;
     seen.add(num);
-    const hint = actHintAfter(text, m.index ?? 0);
+    const ctx = citationContextAfter(text, m.index ?? 0);
+    const hint = ctx.match(ACT_HINT_RE)?.[1] ?? "";
     const citation = hint ? `art. ${num} ${hint}` : `art. ${num}`;
     artChecks.push(
       (async (): Promise<VerificationItem | null> => {
@@ -177,13 +206,19 @@ export async function verifyCitationsInText(
           const resp = await fetch(`${url}/search`, {
             method: "POST",
             headers,
-            body: JSON.stringify({ query: citation, max_results: 8 }),
+            body: JSON.stringify({ query: ctx || citation, max_results: 8 }),
           });
           if (!resp.ok) return null;
           const data = (await resp.json()) as { results?: Array<Record<string, unknown>> };
-          const hit = (data.results ?? []).find(
+          const sameNum = (data.results ?? []).filter(
             (r) => String(r.article_number ?? "").toLowerCase() === num,
           );
+          // l'hit giusto: quello dell'atto citato (se l'hint c'è), altrimenti
+          // il primo con lo stesso numero. Se l'atto citato non compare,
+          // found:false con nota esplicita invece di un ✅ fuorviante.
+          const hit =
+            (hint ? sameNum.find((r) => actMatchesHint(r, hint)) : sameNum[0]) ??
+            sameNum[0];
           if (hit) {
             const hitText = String(hit.text ?? "").trim();
             return {
@@ -203,7 +238,13 @@ export async function verifyCitationsInText(
                   : undefined,
             };
           }
-          return { citation, found: false, note: "citazione non trovata nel corpus" };
+          return {
+            citation,
+            found: false,
+            note: hint
+              ? `art. ${num} non trovato nell'atto citato (${hint})`
+              : "citazione non trovata nel corpus",
+          };
         } catch {
           return null; // best effort
         }

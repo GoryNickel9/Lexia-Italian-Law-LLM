@@ -259,9 +259,30 @@ def semantic_search(query, jurisdiction=None, max_results=10, ref_date=None, rer
                 for r in cur.fetchall():
                     r['_prio0'] = True  # atti-tema: priorità massima nel sort finale
                     exact.setdefault(r['id'], r)
+            # risoluzione atto esplicito per numero (+ anno): "art. 4, comma 4,
+            # del D.Lgs. n. 7 del 2016" -> l'art. 4 del D.Lgs. 7/2016 entra nel
+            # tier esatto con priorità ASSOLUTA, così la verifica citazioni non
+            # si risolve sull'omonimo del codice (c.p. art. 4).
+            resolved_ids = set()
+            for act_urn, _at, _anum in _resolve_act_refs(query):
+                if art_refs:
+                    cur.execute(
+                        base_q + " AND act.urn = %s AND a.article_number = ANY(%s)"
+                                 f" ORDER BY ({rank_expr}) DESC LIMIT 15",
+                        base_params + [act_urn, [str(x) for x in art_refs]] + kw_params)
+                else:
+                    cur.execute(
+                        base_q + " AND act.urn = %s"
+                                 f" ORDER BY ({rank_expr}) DESC, a.article_number LIMIT 10",
+                        base_params + [act_urn] + kw_params)
+                for r in cur.fetchall():
+                    resolved_ids.add(r['id'])
+                    exact.setdefault(r['id'], r)
             by_id = {r['id']: r for r in out}
             for rid, row in exact.items():
                 exact_ids.add(rid)
+                if rid in resolved_ids:
+                    row['_resolved'] = True
                 # i codici hanno priorita' (Costituzione, c.p./c.c. > altri R.D.):
                 # l'offset nella distanza evita che atti minori con lo stesso
                 # numero battano il codice per pochi match lessicali
@@ -271,6 +292,8 @@ def semantic_search(query, jurisdiction=None, max_results=10, ref_date=None, rer
                     # l'hit esatto era gia' tra i candidati: azzera la distanza
                     # cosi' sale in cima invece di restare sepolto dal ranking
                     by_id[rid]['distance'] = -prio_off
+                    if rid in resolved_ids:
+                        by_id[rid]['_resolved'] = True
                 else:
                     row['distance'] = -prio_off
                     out.append(dict(row))
@@ -317,15 +340,17 @@ def semantic_search(query, jurisdiction=None, max_results=10, ref_date=None, rer
         kw_lower = [w for w in kw if w]
 
         def _exact_group(r: dict) -> int:
-            # 0 = codici (Costituzione, c.p., c.c.), 1 = atti-tema (D.Lgs. 7/2016,
-            # D.P.R. 445/2000), 2 = altri atti. I codici restano la fonte primaria;
-            # gli atti-tema portano le norme di raccordo (sanzione pecuniaria,
-            # dichiarazioni mendaci) prima del rumore degli atti minori.
-            if int(r.get('code_prio') or 3) <= 1:
+            # 0 = atto citato esplicitamente per numero+anno (target della
+            #     verifica: es. "art. 4 D.Lgs. 7/2016" -> D.Lgs. 7/2016 art. 4),
+            # 1 = codici (Costituzione, c.p., c.c.), 2 = atti-tema (D.Lgs.
+            #     7/2016, D.P.R. 445/2000), 3 = altri atti.
+            if r.get('_resolved'):
                 return 0
-            if r.get('_prio0'):
+            if int(r.get('code_prio') or 3) <= 1:
                 return 1
-            return 2
+            if r.get('_prio0'):
+                return 2
+            return 3
 
         exact_rows.sort(key=lambda r: (
             _exact_group(r),
@@ -356,6 +381,64 @@ def normalize_urn(raw):
         return base
     # URN malformato: prova a costruirlo da tipo+data+numero estratti dal testo
     return None
+
+def _resolve_act_refs(query):
+    """Ritorna [(urn, act_type, act_number)] per i riferimenti espliciti ad
+    atti nella query (tipo atto + numero, con anno se indicato): es.
+    'D.Lgs. n. 7 del 2016', 'd.p.r. 445/2000', 'legge n. 104 del 1992'.
+    La data esatta per l'URN viene da legal_acts (match sull'anno se noto,
+    altrimenti l'atto più recente con quel tipo+numero)."""
+    out, seen = [], set()
+    for m in _ACT_REF_RE.finditer(query):
+        at = _ACT_TIPO_MAP.get(m.group("tipo").lower())
+        if not at:
+            continue
+        num = m.group("num") or m.group("num2")
+        anno = m.group("anno") or m.group("anno2")
+        key = (at, num, anno or "")
+        if key in seen:
+            continue
+        seen.add(key)
+        conn = connect()
+        try:
+            cur = conn.cursor()
+            sql = ("SELECT urn FROM legal_acts "
+                   "WHERE act_type = %s AND act_number = %s")
+            params = [at, str(int(num))]
+            if anno:
+                sql += " AND act_date >= %s AND act_date < %s"
+                params += [f"{anno}-01-01", f"{int(anno) + 1}-01-01"]
+            sql += " ORDER BY act_date DESC LIMIT 1"
+            cur.execute(sql, params)
+            row = cur.fetchone()
+            if row:
+                out.append((row[0], at, num))
+        finally:
+            conn.close()
+    return out
+
+
+_ACT_REF_RE = re.compile(
+    r"(?P<tipo>decreto\s+del\s+presidente\s+della\s+repubblica|d\.p\.r\.|"
+    r"decreto\s+legislativo|d\.lgs\.|decreto\s+legge|d\.l\.|"
+    r"regio\s+decreto|r\.d\.|legge|l\.)"
+    r"(?:\s*(?:n\.?|numero)\s*(?P<num>\d{1,4})(?:\s*(?:del|/)\s*(?P<anno>\d{4}))?"
+    r"|\s*(?P<num2>\d{1,4})\s*(?:del|/)\s*(?P<anno2>\d{4}))",
+    re.I,
+)
+_ACT_TIPO_MAP = {
+    "decreto del presidente della repubblica": "DECRETO DEL PRESIDENTE DELLA REPUBBLICA",
+    "d.p.r.": "DECRETO DEL PRESIDENTE DELLA REPUBBLICA",
+    "decreto legislativo": "DECRETO LEGISLATIVO",
+    "d.lgs.": "DECRETO LEGISLATIVO",
+    "decreto legge": "DECRETO LEGGE",
+    "d.l.": "DECRETO LEGGE",
+    "regio decreto": "REGIO DECRETO",
+    "r.d.": "REGIO DECRETO",
+    "legge": "LEGGE",
+    "l.": "LEGGE",
+}
+
 
 def verify_citations(citations, ref_date=None):
     """Post-check anti-allucinazione: verifica nel DB che ogni URN citato
