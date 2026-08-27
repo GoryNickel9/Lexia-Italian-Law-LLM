@@ -105,7 +105,10 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_json(400, {"error": "query_required"})
                 return
             max_results = min(max(int(body.get("max_results", 8)), 1), 16)
-            rows = search.semantic_search(query, max_results=max_results, ref_date=ref_date)
+            extra = body.get("extra_citations")
+            rows = search.semantic_search(
+                query, max_results=max_results, ref_date=ref_date,
+                extra_citations=extra if isinstance(extra, list) else None)
             self.send_json(200, {
                 "results": [result_payload(row) for row in rows],
                 "corpus_date": datetime.date.today().isoformat(),

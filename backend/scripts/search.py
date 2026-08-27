@@ -84,6 +84,19 @@ def rerank_enabled():
 
 _ART_REF = re.compile(r"(?:art\.?|articolo)\s*([0-9]+[a-z]*(?:-[a-z0-9]+)*)", re.IGNORECASE)
 
+# citazioni candidate proposte dall'LLM ("624 c.p.", "544-bis c.p.",
+# "544 ter c.p.", "76 D.P.R. 445/2000"): numero + qualificatore atto.
+# Il suffisso può essere attaccato ("544-bis") o staccato ("544 bis"):
+# viene normalizzato a "544-bis". Il numero entra nel tier esatto; l'atto
+# nella risoluzione numero+anno (_ACT_REF_RE).
+_EXTRA_CIT_RE = re.compile(
+    r"(?:art\.?\s*)?(\d{1,4}(?:\s*-?\s*[a-z]+)?)\s+(?:della\s+)?(?:legge\s+)?"
+    r"(c\.p\.|c\.c\.|cost\.?|costituzione|d\.lgs\.?|decreto\s+legislativo|"
+    r"d\.p\.r\.?|decreto\s+del\s+presidente|d\.l\.|decreto\s+legge|"
+    r"r\.d\.|regio\s+decreto|legge)",
+    re.I,
+)
+
 
 def _rrf_fusion(ranked_id_lists, k=None):
     """Reciprocal Rank Fusion: combina piu' ordinamenti di id in uno solo.
@@ -100,14 +113,19 @@ def _rrf_fusion(ranked_id_lists, k=None):
     return sorted(scores, key=scores.get, reverse=True)
 
 
-def semantic_search(query, jurisdiction=None, max_results=10, ref_date=None, rerank=True):
+def semantic_search(query, jurisdiction=None, max_results=10, ref_date=None, rerank=True, extra_citations=None):
     """Ricerca semantica vettoriale: embedding della query + cosine similarity
     (operatore <=> di pgvector) sui chunk. La query viene prima espansa con
     sinonimi giuridici (query_expansion) cosi' il bi-encoder recupera anche
     articoli che non contengono le parole esatte della domanda. Con il
     cross-encoder disponibile i candidati (RERANK_CANDIDATES, default 100)
     vengono riordinati per punteggio di rilevanza; senza reranker si combina
-    la similarita' con un bonus per la corrispondenza lessicale esatta."""
+    la similarita' con un bonus per la corrispondenza lessicale esatta.
+
+    `extra_citations`: lista di citazioni candidate proposte dall'LLM per la
+    domanda (es. ["624 c.p.", "76 D.P.R. 445/2000"]) — i numeri entrano nel
+    tier esatto (garanzia codici), gli atti nella risoluzione per numero+anno.
+    È la "soluzione A": copre TUTTI i temi senza tabelle curate a mano."""
     from embedder import embed
     from query_expansion import TEMA_ARTICOLI, expand_query, norm_token
     import datetime
@@ -180,6 +198,17 @@ def semantic_search(query, jurisdiction=None, max_results=10, ref_date=None, rer
         for syns, arts in TEMA_ARTICOLI.items():
             if set(syns) & toks:
                 tema_nums.extend(arts)
+        # candidati citazioni dall'LLM (soluzione A): numeri+atti proposti dal
+        # modello per la domanda (es. "624 c.p.", "76 D.P.R. 445/2000").
+        # I numeri entrano nel tier esatto; gli atti nella risoluzione
+        # numero+anno (D.Lgs. 7/2016, D.P.R. 445/2000, ...).
+        extra_act_text = ""
+        if extra_citations:
+            for c in extra_citations:
+                extra_act_text += " " + str(c)
+                art_refs.extend(
+                    re.sub(r"\s+", "-", m.group(1)).lower()
+                    for m in _EXTRA_CIT_RE.finditer(str(c)))
         # keyword boost: deduplicato e con peso piccolo — rompe i pareggi
         # senza ribaltare l'ordinamento (vale anche per il tier esatto).
         # Esclude token di rumore ('art.', 'art', 'comma', 'lettera'...) che
@@ -192,6 +221,19 @@ def semantic_search(query, jurisdiction=None, max_results=10, ref_date=None, rer
               if w not in _NOISE_KW]
         inj = sorted(set(art_refs) | set(tema_nums))
         exact_ids = set()
+        exact: dict = {}
+        resolved_ids = set()
+        # il c.c. entra nella garanzia solo se la query lo cita esplicitamente
+        # (anche tramite i candidati LLM: "2043 c.c." -> garanzia c.c. attiva):
+        # altrimenti i suoi articoli omonimi (es. c.c. 476-488 sulle
+        # successioni) affollano il tier esatto e tagliano fuori il c.p.
+        cc_cited = bool(re.search(r'\bc\.c\.\b|codice civile', query + extra_act_text, re.I))
+        cc_cond = (" OR act.urn LIKE '%%regio.decreto:1942-03-16;262%%'" if cc_cited else "")
+        code_cond = ("(act.urn LIKE '%%costituzione%%' OR "
+                     "act.urn LIKE '%%regio.decreto:1930-10-19;1398%%'"
+                     + cc_cond + ")")
+        cc_excl = (" AND act.urn NOT LIKE '%%regio.decreto:1942-03-16;262%%'"
+                   if not cc_cited else "")
         if inj:
             # ranking SQL per keyword nel testo: con 90k+ R.D. quasi tutti con
             # lo stesso numero articolo, l'ordine code_prio (LIMIT 100) tagliava
@@ -218,16 +260,6 @@ def semantic_search(query, jurisdiction=None, max_results=10, ref_date=None, rer
                               "WHEN act.urn LIKE '%%regio.decreto:1930-10-19;1398%%' THEN 1 "
                               "WHEN act.urn LIKE '%%regio.decreto:1942-03-16;262%%' THEN 1 "
                               "WHEN act.urn LIKE '%%regio.decreto%%' THEN 2 ELSE 3 END")
-            # il c.c. entra nella garanzia solo se la query lo cita esplicitamente:
-            # altrimenti i suoi articoli omonimi (es. c.c. 476-488 sulle
-            # successioni) affollano il tier esatto e tagliano fuori il c.p.
-            cc_cited = bool(re.search(r'\bc\.c\.\b|codice civile', query, re.I))
-            cc_cond = (" OR act.urn LIKE '%%regio.decreto:1942-03-16;262%%'" if cc_cited else "")
-            code_cond = ("(act.urn LIKE '%%costituzione%%' OR "
-                         "act.urn LIKE '%%regio.decreto:1930-10-19;1398%%'"
-                         + cc_cond + ")")
-            cc_excl = (" AND act.urn NOT LIKE '%%regio.decreto:1942-03-16;262%%'"
-                       if not cc_cited else "")
             cur.execute(
                 base_q + cc_excl + " AND a.article_number = ANY(%s)"
                          f" ORDER BY ({rank_expr}) DESC, code_prio, act.title LIMIT 100",
@@ -262,9 +294,10 @@ def semantic_search(query, jurisdiction=None, max_results=10, ref_date=None, rer
             # risoluzione atto esplicito per numero (+ anno): "art. 4, comma 4,
             # del D.Lgs. n. 7 del 2016" -> l'art. 4 del D.Lgs. 7/2016 entra nel
             # tier esatto con priorità ASSOLUTA, così la verifica citazioni non
-            # si risolve sull'omonimo del codice (c.p. art. 4).
-            resolved_ids = set()
-            for act_urn, _at, _anum in _resolve_act_refs(query):
+            # si risolve sull'omonimo del codice (c.p. art. 4). Gli atti
+            # proposti dall'LLM (extra_citations) valgono come il testo della
+            # domanda (es. "76 D.P.R. 445/2000" -> D.P.R. 445 art. 76).
+            for act_urn, _at, _anum in _resolve_act_refs(query + extra_act_text):
                 if art_refs:
                     cur.execute(
                         base_q + " AND act.urn = %s AND a.article_number = ANY(%s)"
@@ -278,25 +311,44 @@ def semantic_search(query, jurisdiction=None, max_results=10, ref_date=None, rer
                 for r in cur.fetchall():
                     resolved_ids.add(r['id'])
                     exact.setdefault(r['id'], r)
-            by_id = {r['id']: r for r in out}
-            for rid, row in exact.items():
-                exact_ids.add(rid)
+        # B) garanzia codici SEMPRE attiva: anche senza tema/numero iniettato,
+        # i top articoli dei codici per similarità vettoriale entrano nel tier
+        # esatto — rete di sicurezza per le domande senza tema (es. "sottrazione
+        # di un cane" -> 624/625/628 c.p. nel contesto anche se il loro testo
+        # non matcha le keyword della domanda).
+        cur.execute(
+            base_q + f" AND {code_cond}"
+                     f" ORDER BY c.embedding <=> %s::vector LIMIT 40",
+            base_params_v)
+        _codes_added = 0
+        for r in cur.fetchall():
+            if r['id'] in exact:
+                continue
+            exact[r['id']] = r
+            _codes_added += 1
+            if _codes_added >= 6:
+                break
+        # merge nel candidati vettoriali: gli hit esatti azzerano la distanza
+        # (offset code_prio) e salgono in cima all'ordinamento finale.
+        by_id = {r['id']: r for r in out}
+        for rid, row in exact.items():
+            exact_ids.add(rid)
+            if rid in resolved_ids:
+                row['_resolved'] = True
+            # i codici hanno priorita' (Costituzione, c.p./c.c. > altri R.D.):
+            # l'offset nella distanza evita che atti minori con lo stesso
+            # numero battano il codice per pochi match lessicali
+            prio = row['code_prio']
+            prio_off = 0.08 if prio in (0, 1) else (0.03 if prio == 2 else 0.0)
+            if rid in by_id:
+                # l'hit esatto era gia' tra i candidati: azzera la distanza
+                # cosi' sale in cima invece di restare sepolto dal ranking
+                by_id[rid]['distance'] = -prio_off
                 if rid in resolved_ids:
-                    row['_resolved'] = True
-                # i codici hanno priorita' (Costituzione, c.p./c.c. > altri R.D.):
-                # l'offset nella distanza evita che atti minori con lo stesso
-                # numero battano il codice per pochi match lessicali
-                prio = row['code_prio']
-                prio_off = 0.08 if prio in (0, 1) else (0.03 if prio == 2 else 0.0)
-                if rid in by_id:
-                    # l'hit esatto era gia' tra i candidati: azzera la distanza
-                    # cosi' sale in cima invece di restare sepolto dal ranking
-                    by_id[rid]['distance'] = -prio_off
-                    if rid in resolved_ids:
-                        by_id[rid]['_resolved'] = True
-                else:
-                    row['distance'] = -prio_off
-                    out.append(dict(row))
+                    by_id[rid]['_resolved'] = True
+            else:
+                row['distance'] = -prio_off
+                out.append(dict(row))
         # keyword boost: deduplicato e con peso piccolo — rompe i pareggi
         # senza ribaltare l'ordinamento (vale anche per il tier esatto).
         boost = float(os.environ.get('LEGAL_KEYWORD_BOOST', '0.01'))

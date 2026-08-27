@@ -26,12 +26,79 @@ function legalSearchUrl(): string {
   return value.replace(/\/$/, "");
 }
 
+/**
+ * Soluzione A: estrae dall'LLM (DeepSeek diretto, ~1-2s) le citazioni che un
+ * avvocato userebbe per rispondere alla domanda (es. "624 c.p.", "76 D.P.R.
+ * 445/2000"). I numeri entrano nel tier esatto della ricerca come un tema
+ * "auto-generato": copre TUTTI gli argomenti senza tabelle curate a mano.
+ * Best-effort: timeout 4s, ogni errore degrada a lista vuota (la ricerca
+ * prosegue senza candidati).
+ */
+let candidatesCache: Map<string, { at: number; value: string[] }> | null = null;
+
+export async function extractCandidateCitations(
+  question: string,
+): Promise<string[]> {
+  const key = process.env.DEEPSEEK_API_KEY?.trim();
+  if (!key) return [];
+  if (!candidatesCache) candidatesCache = new Map();
+  const cached = candidatesCache.get(question);
+  if (cached && Date.now() - cached.at < 10 * 60_000) return cached.value;
+  const base = process.env.DEEPSEEK_BASE_URL?.trim() ?? "https://api.deepseek.com";
+  // deepseek-chat (no reasoning): l'estrazione deve rispondere SUBITO con la
+  // lista; deepseek-v4-flash consuma il budget token in reasoning_content.
+  const model = process.env.DEEPSEEK_MODEL?.trim() ?? "deepseek-chat";
+  try {
+    const resp = await fetch(`${base}/chat/completions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
+      body: JSON.stringify({
+        model,
+        temperature: 0.2,
+        max_tokens: 150,
+        messages: [
+          {
+            role: "system",
+            content:
+              "Sei un supporto alla ricerca giuridica italiana. Rispondi SOLO con la lista richiesta, una citazione per riga, senza spiegazioni, prefissi o numerazioni.",
+          },
+          {
+            role: "user",
+            content: `Domanda di diritto italiano: "${question}". Quali articoli di legge citerebbe un avvocato esperto per rispondere? Elenca fino a 10 citazioni nel formato "NUMERO ATTO" (es. "624 c.p.", "544-bis c.p.", "2043 c.c.", "76 D.P.R. 445/2000"). Nient'altro.`,
+          },
+        ],
+      }),
+      signal: AbortSignal.timeout(4_000),
+    });
+    if (!resp.ok) return [];
+    const data = (await resp.json()) as { choices?: Array<{ message?: { content?: string } }> };
+    const content = data.choices?.[0]?.message?.content ?? "";
+    const lines = content
+      .split("\n")
+      .map((l) => l.trim().replace(/^[-•*–]\s*/, "").replace(/^\d{1,2}[.)]\s*/, ""))
+      .filter(
+        (l) =>
+          l.length > 2 &&
+          /\d/.test(l) &&
+          /(c\.p\.|c\.c\.|cost\.?|costituzione|d\.lgs\.?|decreto|d\.p\.r\.?|d\.l\.|r\.d\.|regio|legge)/i.test(l),
+      )
+      .slice(0, 10);
+    candidatesCache.set(question, { at: Date.now(), value: lines });
+    return lines;
+  } catch {
+    return [];
+  }
+}
+
 export async function searchLocalCorpus(query: string, referenceDate?: string): Promise<LegalSearchResponse> {
   const url = legalSearchUrl();
   const headers: HeadersInit = { "Content-Type": "application/json" };
   if (process.env.LEGAL_SEARCH_API_KEY) {
     headers.Authorization = `Bearer ${process.env.LEGAL_SEARCH_API_KEY}`;
   }
+
+  // Soluzione A: candidati LLM (1-2s) -> tier esatto, come un tema auto-generato
+  const candidates = await extractCandidateCitations(query);
 
   const response = await fetch(`${url}/search`, {
     method: "POST",
@@ -43,6 +110,7 @@ export async function searchLocalCorpus(query: string, referenceDate?: string): 
       // alternativi (truffa, furto, sostituzione di persona) e la legge di
       // depenalizzazione (D.Lgs. 7/2016) per le domande su pene e sanzioni.
       max_results: 15,
+      ...(candidates.length ? { extra_citations: candidates } : {}),
     }),
     cache: "no-store",
     signal: AbortSignal.timeout(12_000),
